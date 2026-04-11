@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields: uid, email, displayName, photoURL, role (customer|seller|admin), createdAt, businessName, businessDescription
+    //
+    // Collection: products
+    // Document ID: productId
+    // Fields: id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, createdAt, visitCount, likeCount
+    //
+    // Collection: orders
+    // Document ID: orderId
+    // Fields: id, customerId, items, total, status, paymentId, trackingNumber, createdAt
+    //
+    // Collection: reviews
+    // Document ID: reviewId
+    // Fields: id, productId, userId, userName, rating, comment, createdAt
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSeller() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'seller';
+    }
+
+    function isPlatformAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "bitbyte790@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isAdminOrSeller() {
+      return isPlatformAdmin() || isSeller();
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && 
+        hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'createdAt', 'businessName', 'businessDescription']) &&
+        request.resource.data.role in ['customer', 'seller', 'admin'];
+      allow update: if (isOwner(userId) || isPlatformAdmin()) && 
+        hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'createdAt', 'businessName', 'businessDescription']);
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if (isSeller() || isPlatformAdmin()) && 
+        request.resource.data.sellerId == request.auth.uid;
+      allow update: if (isPlatformAdmin() || (isSeller() && resource.data.sellerId == request.auth.uid)) || 
+        (isAuthenticated() && hasOnlyAllowedFields(['visitCount', 'likeCount'])); // Allow users to increment visits/likes
+      allow delete: if isPlatformAdmin() || (isSeller() && resource.data.sellerId == request.auth.uid);
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && 
+        (request.auth.uid == resource.data.customerId || isSeller() || isPlatformAdmin());
+      allow create: if isAuthenticated() && 
+        request.resource.data.customerId == request.auth.uid;
+      allow update: if isSeller() || isPlatformAdmin(); // Only sellers/admins can update status/tracking
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+        request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+    }
+  }
+}
