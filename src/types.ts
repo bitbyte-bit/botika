@@ -16,6 +16,7 @@ export interface User {
   createdAt: string;
   businessName?: string;
   businessDescription?: string;
+  isOnline?: boolean;
 }
 
 export interface Product {
@@ -32,9 +33,11 @@ export interface Product {
   reviewCount: number;
   sellerId: string;
   sellerName?: string;
+  seller?: User;
   createdAt: string;
   visitCount: number;
   likeCount: number;
+  isOnline?: boolean;
 }
 
 export interface Message {

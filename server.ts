@@ -93,6 +93,15 @@ db.exec(`
   );
 `);
 
+const masterAdminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba26@gmail.com');
+if (!masterAdminExists) {
+  const stmt = db.prepare(`
+    INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run('master-admin', 'bikuumba26@gmail.com', 'Master Admin', '', 'master', new Date().toISOString(), 'bikuumba');
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -131,7 +140,7 @@ async function startServer() {
       email,
       displayName,
       photoURL: "",
-      role: email === 'bitbyte790@gmail.com' || email === 'bikuumba26@gmail.com' ? 'admin' : 'customer',
+      role: email === 'bikuumba26@gmail.com' ? 'master' : (email === 'bitbyte790@gmail.com' ? 'admin' : 'customer'),
       createdAt: new Date().toISOString(),
       password
     };

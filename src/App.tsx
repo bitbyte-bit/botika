@@ -417,6 +417,43 @@ const InboxView = () => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{users: User[], businesses: any[]}>({ users: [], businesses: [] });
+  const [searching, setSearching] = useState(false);
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const allUsers = await api.get('/users');
+      const allProducts = await api.get('/products');
+      
+      const query = searchQuery.toLowerCase();
+      
+      const users = allUsers.filter((u: User) => 
+        (u.displayName?.toLowerCase().includes(query) || u.email?.toLowerCase().includes(query)) &&
+        u.role !== 'admin'
+      );
+      
+      const businesses = allProducts
+        .filter((p: Product) => p.sellerName?.toLowerCase().includes(query) && p.isOnline)
+        .map((p: Product) => ({ ...p.seller, productName: p.name }))
+        .filter((b: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === b.id) === i);
+      
+      setSearchResults({ users, businesses });
+    } catch (error) {
+      console.error("Search failed", error);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (searchOpen && searchQuery) {
+      handleSearch();
+    }
+  }, [searchQuery]);
 
   const fetchInbox = async () => {
     if (!user) return;
@@ -468,7 +505,69 @@ const InboxView = () => {
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
-      <h2 className="text-4xl serif">Inbox</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-4xl serif">Inbox</h2>
+        <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)} className="gap-2">
+          <Search className="h-4 w-4" />
+          Search Users
+        </Button>
+      </div>
+      
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Search Users & Businesses</DialogTitle>
+            <DialogDescription>Search for registered users and businesses with online badge</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              placeholder="Search by name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            />
+            {searching && <p className="text-sm text-muted-foreground">Searching...</p>}
+            {!searching && searchResults.users.length === 0 && searchResults.businesses.length === 0 && searchQuery && (
+              <p className="text-sm text-muted-foreground">No results found.</p>
+            )}
+            {searchResults.users.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Users</h4>
+                {searchResults.users.slice(0, 5).map((u) => (
+                  <div key={u.uid} className="flex items-center gap-3 p-2 rounded-lg bg-secondary/50">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={u.photoURL || undefined} />
+                      <AvatarFallback>{u.displayName?.[0]?.toUpperCase() || '?'}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{u.displayName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {searchResults.businesses.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Businesses (Online)</h4>
+                {searchResults.businesses.slice(0, 5).map((b) => (
+                  <div key={b.id} className="flex items-center gap-3 p-2 rounded-lg bg-secondary/50">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={b.photoURL || undefined} />
+                      <AvatarFallback>{b.displayName?.[0]?.toUpperCase() || '?'}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{b.displayName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{b.productName}</p>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px]">ONLINE</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       
       <Tabs defaultValue="messages" className="w-full">
         <TabsList className="w-full bg-secondary/50 p-1 rounded-full">
@@ -651,7 +750,7 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
               {products.map(p => (
                 <div key={p.id} className="group cursor-pointer">
                   <div className="aspect-square rounded-xl overflow-hidden bg-secondary">
-                    <img src={p.images[0]} alt={p.name} className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                    <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" />
                   </div>
                   <p className="mt-2 text-sm font-medium line-clamp-1">{p.name}</p>
                 </div>
@@ -962,7 +1061,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <div className="space-y-8">
         <Card className="border-none bg-paper shadow-sm">
           <CardHeader>
             <CardTitle className="serif">Account Settings</CardTitle>
@@ -1308,7 +1407,7 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
             <img 
               src={product.images[0]} 
               alt={product.name} 
-              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+              className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-110"
               referrerPolicy="no-referrer"
               onClick={() => onProductClick(product)}
             />
@@ -1398,7 +1497,7 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
             <ScrollArea className="h-full">
               <div className="space-y-4 p-4">
                 {product.images.map((img, i) => (
-                  <img key={i} src={img} alt={product.name} className="w-full rounded-xl object-cover" referrerPolicy="no-referrer" />
+                  <img key={i} src={img} alt={product.name} className="w-full rounded-xl object-contain" referrerPolicy="no-referrer" />
                 ))}
               </div>
             </ScrollArea>
@@ -1493,6 +1592,7 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
 };
 
 const SellerDashboard = ({ user }: { user: User }) => {
+  const { setUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -1538,14 +1638,18 @@ const SellerDashboard = ({ user }: { user: User }) => {
       return;
     }
     try {
-      await api.post('/users', {
+      const updatedUser = {
         ...user,
         role: 'seller',
         businessName: businessData.name,
         businessDescription: businessData.description
-      });
+      };
+      await api.post('/users', updatedUser);
+      localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
       toast.success("Business registered successfully! You can now start selling.");
       setIsRegistering(false);
+      setView('inventory');
     } catch (error) {
       toast.error("Failed to register business");
     }
@@ -1868,7 +1972,7 @@ const SellerDashboard = ({ user }: { user: User }) => {
           {products.map(product => (
             <Card key={product.id} className="overflow-hidden border-none bg-paper shadow-sm group">
               <div className="aspect-video relative overflow-hidden bg-secondary">
-                <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover transition-transform group-hover:scale-105" referrerPolicy="no-referrer" />
+                <img src={product.images[0]} alt={product.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" referrerPolicy="no-referrer" />
                 <div className="absolute top-2 right-2 flex gap-1">
                   <Badge className="bg-paper/90 text-ink backdrop-blur-sm border-none">
                     <Eye className="h-3 w-3 mr-1" /> {product.visitCount || 0}
@@ -2415,14 +2519,6 @@ const AppContent = () => {
                     <li><button onClick={() => { setView('home'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors flex items-center gap-3">New Arrivals <ArrowRight className="h-4 w-4 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all" /></button></li>
                     <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Best Sellers</button></li>
                     <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Categories</button></li>
-                  </ul>
-                </div>
-                <div className="space-y-6">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Company</h4>
-                  <ul className="space-y-4 text-xl serif">
-                    <li><button onClick={() => { setView('about'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Our Story</button></li>
-                    <li><button onClick={() => { setView('artisans'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Artisans</button></li>
-                    <li><button onClick={() => { setView('sustainability'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Sustainability</button></li>
                   </ul>
                 </div>
                 <div className="space-y-6">
