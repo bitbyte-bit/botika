@@ -17,6 +17,12 @@
         }
         return await grecaptcha.enterprise.execute('6Le2UrMsAAAAAH38W9gS7QkHguvv3QMK2dgDCeDT', { action });
       };
+      
+      window.onRecaptchaVerify = function(token) {
+        window.recaptchaVerified = token;
+        const event = new CustomEvent('recaptchaVerified', { detail: token });
+        window.dispatchEvent(event);
+      };
     </script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { 
   ShoppingBag, 
   Search, 
@@ -30,7 +30,13 @@ import {
   Camera,
   CreditCard,
   Lock,
-  Smartphone
+  Smartphone,
+  MapPin,
+  Mail,
+  Instagram,
+  Facebook,
+  Twitter,
+  Video
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -209,7 +215,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currency, setCurrency] = useState<'USD' | 'UGX'>('USD');
+  const [currency, setCurrency] = useState<'USD' | 'UGX'>('UGX');
   const rate = 3700; // 1 USD = 3700 UGX
 
   const formatPrice = (price: number) => {
@@ -251,6 +257,12 @@ const useCurrency = () => {
 declare global {
   interface Window {
     executeRecaptcha?: (action: string) => Promise<string | null>;
+    grecaptcha?: {
+      enterprise: {
+        render: (element: string, options: any) => number;
+        execute: (sitekey: string, options: any) => Promise<string>;
+      };
+    };
   }
 }
 
@@ -263,19 +275,22 @@ const LoginModal = () => {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [notRobot, setNotRobot] = useState(false);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (isSignUp && !notRobot) {
-        toast.error("Please confirm you are not a robot");
-        setLoading(false);
-        return;
-      }
       if (isSignUp) {
-        const newUser = await api.post('/auth/signup', { email, password, displayName });
+        let token = null;
+        if (window.executeRecaptcha) {
+          token = await window.executeRecaptcha('signup');
+        }
+        if (!token) {
+          toast.error("Please complete the recaptcha verification");
+          setLoading(false);
+          return;
+        }
+        const newUser = await api.post('/auth/signup', { email, password, displayName, recaptchaToken: token });
         localStorage.setItem('bikuumba_user', JSON.stringify(newUser));
         setUser(newUser);
       } else {
@@ -337,17 +352,10 @@ const LoginModal = () => {
             />
           </div>
           {isSignUp && (
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="notRobot"
-                checked={notRobot}
-                onChange={e => setNotRobot(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <label htmlFor="notRobot" className="text-sm text-muted-foreground">
-                I'm not a robot
-              </label>
+            <div className="flex items-center justify-center p-4 bg-secondary/30 rounded-lg">
+              <p className="text-sm text-muted-foreground text-center">
+                reCAPTCHA verification will be performed on submission
+              </p>
             </div>
           )}
           <Button type="submit" className="w-full h-12 text-lg rounded-full" disabled={loading}>
@@ -682,6 +690,8 @@ const InboxView = () => {
 
 const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose: () => void }) => {
   const { user } = useAuth();
+  const { addItem } = useCart();
+  const { formatPrice } = useCurrency();
   const [seller, setSeller] = useState<User | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -723,7 +733,6 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
           createdAt: new Date().toISOString()
         });
         
-        // Send notification to seller
         await api.post('/notifications', {
           id: crypto.randomUUID(),
           userId: sellerId,
@@ -743,7 +752,6 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
 
   const handleChat = async () => {
     if (!user) return toast.error("Please sign in to chat");
-    // Simple chat initiation - send a system message or just open a dialog
     toast.info("Chat feature coming soon! You can now follow this boutique.");
   };
 
@@ -751,45 +759,151 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden bg-paper border-none">
-        <div className="h-40 bg-accent relative">
-          <Avatar className="h-24 w-24 absolute -bottom-12 left-8 border-4 border-paper shadow-xl">
-            <AvatarImage src={seller.photoURL} />
-            <AvatarFallback className="text-2xl">{seller.displayName[0]}</AvatarFallback>
-          </Avatar>
-        </div>
-        <div className="pt-16 px-8 pb-8 space-y-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-3xl serif">{seller.businessName || seller.displayName}</h2>
+      <DialogContent className="max-w-2xl p-0 overflow-hidden bg-paper border-none max-h-[90vh]">
+        <ScrollArea className="h-full max-h-[90vh]">
+          <div className="h-40 bg-secondary relative overflow-hidden">
+            {seller.coverPhoto ? (
+              <img src={seller.coverPhoto} alt="Cover" className="h-full w-full object-cover" />
+            ) : (
+              <div className="h-full w-full bg-gradient-to-r from-accent to-secondary" />
+            )}
+          </div>
+          <div className="relative px-8 pb-8 space-y-6">
+            <div className="flex justify-between items-start -mt-16">
+              <div className="relative">
+                <Avatar className="h-24 w-24 border-4 border-paper shadow-xl">
+                  <AvatarImage src={seller.photoURL} />
+                  <AvatarFallback className="text-2xl">{seller.displayName[0]}</AvatarFallback>
+                </Avatar>
+                {seller.isOnline && (
+                  <div className="absolute bottom-0 right-0 h-4 w-4 bg-green-500 rounded-full border-2 border-paper" />
+                )}
+              </div>
+              <div className="flex gap-2 pt-12">
+                <Button variant={isFollowing ? 'outline' : 'default'} className="rounded-full" onClick={handleFollow}>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Button>
+                <Button variant="outline" size="icon" className="rounded-full" onClick={handleChat}>
+                  <MessageSquare className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-3xl serif">{seller.businessName || seller.displayName}</h2>
+                {seller.isCertified && (
+                  <Badge variant="default" className="bg-blue-600 text-white gap-1">
+                    <ShieldCheck className="h-3 w-3" /> Certified
+                  </Badge>
+                )}
+              </div>
               <p className="text-muted-foreground text-sm">{seller.businessDescription || 'Curated boutique seller'}</p>
             </div>
-            <div className="flex gap-2">
-              <Button variant={isFollowing ? 'outline' : 'default'} className="rounded-full" onClick={handleFollow}>
-                {isFollowing ? 'Following' : 'Follow'}
-              </Button>
-              <Button variant="outline" size="icon" className="rounded-full" onClick={handleChat}>
-                <MessageSquare className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
 
-          <Separator />
+            <Separator />
 
-          <div className="space-y-4">
-            <h3 className="font-medium uppercase tracking-widest text-xs">Boutique Items</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {products.map(p => (
-                <div key={p.id} className="group cursor-pointer">
-                  <div className="aspect-square rounded-xl overflow-hidden bg-secondary">
-                    <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" />
-                  </div>
-                  <p className="mt-2 text-sm font-medium line-clamp-1">{p.name}</p>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {seller.location && (
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span>{seller.location}</span>
                 </div>
-              ))}
+              )}
+              {seller.email && (
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span>{seller.email}</span>
+                </div>
+              )}
+              {seller.phoneAirtel && (
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-red-600" />
+                  <span>Airtel: {seller.phoneAirtel}</span>
+                </div>
+              )}
+              {seller.phoneMTN && (
+                <div className="flex items-center gap-2">
+                  <Smartphone className="h-4 w-4 text-yellow-600" />
+                  <span>MTN: {seller.phoneMTN}</span>
+                </div>
+              )}
+            </div>
+
+            {seller.socialHandles && (
+              <div className="flex gap-3">
+                {seller.socialHandles.instagram && (
+                  <a href={`https://instagram.com/${seller.socialHandles.instagram}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-secondary hover:bg-secondary/80">
+                    <Instagram className="h-4 w-4" />
+                  </a>
+                )}
+                {seller.socialHandles.facebook && (
+                  <a href={`https://facebook.com/${seller.socialHandles.facebook}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-secondary hover:bg-secondary/80">
+                    <Facebook className="h-4 w-4" />
+                  </a>
+                )}
+                {seller.socialHandles.twitter && (
+                  <a href={`https://twitter.com/${seller.socialHandles.twitter}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-secondary hover:bg-secondary/80">
+                    <Twitter className="h-4 w-4" />
+                  </a>
+                )}
+                {seller.socialHandles.tiktok && (
+                  <a href={`https://tiktok.com/@${seller.socialHandles.tiktok}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-full bg-secondary hover:bg-secondary/80">
+                    <Video className="h-4 w-4" />
+                  </a>
+                )}
+              </div>
+            )}
+
+            <Separator />
+
+            <div className="space-y-4">
+              <h3 className="font-medium uppercase tracking-widest text-xs">Boutique Items ({products.length})</h3>
+              <div className="grid grid-cols-2 gap-4">
+                {products.map(p => (
+                  <div key={p.id} className="group cursor-pointer relative">
+                    <div className="aspect-square rounded-xl overflow-hidden bg-secondary">
+                      <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" />
+                    </div>
+                    {p.discount && p.discount > 0 && (
+                      <Badge className="absolute top-2 left-2 bg-red-600 text-white">
+                        -{p.discount}%
+                      </Badge>
+                    )}
+                    <Button 
+                      size="icon" 
+                      className="absolute bottom-2 right-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-paper shadow-lg"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addItem(p);
+                      }}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-sm font-medium line-clamp-1">{p.name}</p>
+                      <div className="flex items-center gap-2">
+                        {p.discount && p.discount > 0 ? (
+                          <>
+                            <span className="text-sm font-medium">{formatPrice(p.price * (1 - p.discount / 100))}</span>
+                            <span className="text-xs text-muted-foreground line-through">{formatPrice(p.price)}</span>
+                          </>
+                        ) : (
+                          <span className="text-sm font-medium">{formatPrice(p.price)}</span>
+                        )}
+                      </div>
+                      {p.bulkDiscountMinQty && p.bulkDiscountPercent && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Buy {p.bulkDiscountMinQty}+ get {p.bulkDiscountPercent}% off
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   );
@@ -1008,7 +1122,12 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
         displayName: user.displayName,
         photoURL: user.photoURL || '',
         businessName: user.businessName || '',
-        businessDescription: user.businessDescription || ''
+        businessDescription: user.businessDescription || '',
+        location: user.location || '',
+        phoneAirtel: user.phoneAirtel || '',
+        phoneMTN: user.phoneMTN || '',
+        coverPhoto: user.coverPhoto || '',
+        socialHandles: user.socialHandles || { instagram: '', facebook: '', twitter: '', tiktok: '' }
       });
 
       // Fetch followed businesses
@@ -1227,6 +1346,114 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
                     rows={4}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Location</Label>
+                  <Input 
+                    placeholder="Kampala, Uganda" 
+                    value={profileData.location} 
+                    onChange={e => setProfileData({...profileData, location: e.target.value})} 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Airtel Number</Label>
+                    <Input 
+                      placeholder="+256 70x xxx xxx" 
+                      value={profileData.phoneAirtel} 
+                      onChange={e => setProfileData({...profileData, phoneAirtel: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>MTN Number</Label>
+                    <Input 
+                      placeholder="+256 76x xxx xxx" 
+                      value={profileData.phoneMTN} 
+                      onChange={e => setProfileData({...profileData, phoneMTN: e.target.value})} 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cover Photo</Label>
+                  <div className="flex gap-2">
+                    <Input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      id="cover-upload" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 500000) {
+                            toast.error("Image too large. Please choose an image under 500KB.");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setProfileData({ ...profileData, coverPhoto: reader.result as string });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="rounded-full"
+                      onClick={() => document.getElementById('cover-upload')?.click()}
+                    >
+                      <Camera className="mr-2 h-4 w-4" /> Upload Cover
+                    </Button>
+                    {profileData.coverPhoto && (
+                      <img src={profileData.coverPhoto} alt="Cover" className="h-10 w-20 object-cover rounded" />
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Instagram Handle</Label>
+                    <Input 
+                      placeholder="username" 
+                      value={profileData.socialHandles?.instagram || ''} 
+                      onChange={e => setProfileData({
+                        ...profileData, 
+                        socialHandles: {...profileData.socialHandles, instagram: e.target.value}
+                      })} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Facebook Page</Label>
+                    <Input 
+                      placeholder="pagename" 
+                      value={profileData.socialHandles?.facebook || ''} 
+                      onChange={e => setProfileData({
+                        ...profileData, 
+                        socialHandles: {...profileData.socialHandles, facebook: e.target.value}
+                      })} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Twitter Handle</Label>
+                    <Input 
+                      placeholder="username" 
+                      value={profileData.socialHandles?.twitter || ''} 
+                      onChange={e => setProfileData({
+                        ...profileData, 
+                        socialHandles: {...profileData.socialHandles, twitter: e.target.value}
+                      })} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>TikTok Handle</Label>
+                    <Input 
+                      placeholder="username" 
+                      value={profileData.socialHandles?.tiktok || ''} 
+                      onChange={e => setProfileData({
+                        ...profileData, 
+                        socialHandles: {...profileData.socialHandles, tiktok: e.target.value}
+                      })} 
+                    />
+                  </div>
+                </div>
               </>
             )}
           </div>
@@ -1274,13 +1501,15 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
           </div>
 
           <Sheet>
-            <SheetTrigger render={<Button variant="ghost" size="icon" className="relative" />}>
-              <ShoppingBag className="h-5 w-5" />
-              {itemCount > 0 && (
-                <Badge className="absolute -right-1 -top-1 h-5 w-5 justify-center rounded-full p-0 text-[10px]">
-                  {itemCount}
-                </Badge>
-              )}
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <ShoppingBag className="h-5 w-5" />
+                {itemCount > 0 && (
+                  <Badge className="absolute -right-1 -top-1 h-5 w-5 justify-center rounded-full p-0 text-[10px]">
+                    {itemCount}
+                  </Badge>
+                )}
+              </Button>
             </SheetTrigger>
             <SheetContent className="w-full sm:max-w-md">
               <SheetHeader>
@@ -1498,7 +1727,10 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
 
 const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Product, onClose: () => void, onAddToCart: (p: Product) => void, onChat: (p: Product) => void }) => {
   const [reviews, setReviews] = useState<Review[]>([]);
+  const { user } = useAuth();
   const { formatPrice } = useCurrency();
+  const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   useEffect(() => {
     const fetchReviews = async () => {
@@ -1521,18 +1753,50 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
     }
   };
 
+  const handleSubmitReview = async () => {
+    if (!user) return toast.error("Please sign in to leave a review");
+    if (!newReview.comment.trim()) return toast.error("Please write a review");
+    
+    setIsSubmittingReview(true);
+    try {
+      const review = {
+        id: crypto.randomUUID(),
+        productId: product.id,
+        userId: user.uid,
+        userName: user.displayName,
+        rating: newReview.rating,
+        comment: newReview.comment,
+        createdAt: new Date().toISOString()
+      };
+      await api.post('/reviews', review);
+      setReviews([review, ...reviews]);
+      setNewReview({ rating: 5, comment: '' });
+      toast.success("Review submitted!");
+    } catch (error) {
+      console.error("Failed to submit review", error);
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const discountedPrice = product.discount ? product.price * (1 - product.discount / 100) : null;
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-5xl p-0 overflow-hidden border-none bg-paper max-h-[90vh]">
         <div className="flex flex-col md:flex-row h-full max-h-[90vh]">
-          <div className="w-full md:w-1/2 bg-secondary relative max-h-[50vh] md:max-h-none">
-            <ScrollArea className="h-full">
-              <div className="space-y-4 p-4">
-                {product.images.map((img, i) => (
-                  <img key={i} src={img} alt={product.name} className="w-full rounded-xl object-contain" referrerPolicy="no-referrer" />
-                ))}
-              </div>
-            </ScrollArea>
+          <div className="w-full md:w-1/2 bg-secondary relative max-h-[50vh] md:max-h-none overflow-hidden">
+            {product.discount && product.discount > 0 && (
+              <Badge className="absolute top-4 left-4 z-10 bg-red-600 text-white text-lg px-3 py-1">
+                -{product.discount}% OFF
+              </Badge>
+            )}
+            <img 
+              src={product.images[0]} 
+              alt={product.name} 
+              className="h-full w-full object-cover"
+              referrerPolicy="no-referrer"
+            />
             <Button 
               size="icon" 
               variant="secondary" 
@@ -1548,7 +1812,21 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
                 <div className="space-y-2">
                   <Badge variant="outline" className="uppercase tracking-widest text-[10px]">{product.category}</Badge>
                   <h2 className="text-4xl serif">{product.name}</h2>
-                  <p className="text-2xl font-light">{formatPrice(product.price)}</p>
+                  <div className="flex items-center gap-3">
+                    {discountedPrice ? (
+                      <>
+                        <span className="text-2xl font-light">{formatPrice(discountedPrice)}</span>
+                        <span className="text-lg text-muted-foreground line-through">{formatPrice(product.price)}</span>
+                      </>
+                    ) : (
+                      <span className="text-2xl font-light">{formatPrice(product.price)}</span>
+                    )}
+                  </div>
+                  {product.bulkDiscountMinQty && product.bulkDiscountPercent && (
+                    <Badge variant="secondary" className="mt-2">
+                      Buy {product.bulkDiscountMinQty}+ get {product.bulkDiscountPercent}% extra off!
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-4 py-4 border-y flex-wrap">
@@ -1585,6 +1863,29 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
 
                 <div className="space-y-4">
                   <h4 className="font-medium uppercase tracking-widest text-xs">Customer Reviews</h4>
+                  
+                  {user && (
+                    <div className="space-y-3 p-4 bg-secondary/30 rounded-xl">
+                      <h5 className="text-sm font-medium">Write a Review</h5>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button key={star} onClick={() => setNewReview({ ...newReview, rating: star })}>
+                            <Star className={`h-5 w-5 ${star <= newReview.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
+                          </button>
+                        ))}
+                      </div>
+                      <Textarea 
+                        placeholder="Share your experience with this product..."
+                        value={newReview.comment}
+                        onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
+                        rows={3}
+                      />
+                      <Button size="sm" onClick={handleSubmitReview} disabled={isSubmittingReview}>
+                        {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
+                      </Button>
+                    </div>
+                  )}
+                  
                   {reviews.length === 0 ? (
                     <p className="text-sm text-muted-foreground italic">No reviews yet. Be the first to share your thoughts!</p>
                   ) : (
@@ -1643,7 +1944,10 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     isAuthentic: true,
     authenticationDetails: '',
     visitCount: 0,
-    likeCount: 0
+    likeCount: 0,
+    discount: 0,
+    bulkDiscountMinQty: 0,
+    bulkDiscountPercent: 0
   });
 
   const fetchData = async () => {
@@ -1909,8 +2213,20 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                 <Input type="number" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: Number(e.target.value)})} />
               </div>
               <div className="space-y-2">
+                <Label>Discount (%)</Label>
+                <Input type="number" value={newProduct.discount} onChange={e => setNewProduct({...newProduct, discount: Number(e.target.value)})} placeholder="0" />
+              </div>
+              <div className="space-y-2">
                 <Label>Stock Quantity</Label>
                 <Input type="number" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: Number(e.target.value)})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Bulk Discount - Min Qty</Label>
+                <Input type="number" value={newProduct.bulkDiscountMinQty} onChange={e => setNewProduct({...newProduct, bulkDiscountMinQty: Number(e.target.value)})} placeholder="e.g. 5" />
+              </div>
+              <div className="space-y-2">
+                <Label>Bulk Discount (%)</Label>
+                <Input type="number" value={newProduct.bulkDiscountPercent} onChange={e => setNewProduct({...newProduct, bulkDiscountPercent: Number(e.target.value)})} placeholder="e.g. 10" />
               </div>
               <div className="col-span-2 space-y-2">
                 <Label>Description</Label>

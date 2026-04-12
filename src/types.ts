@@ -17,6 +17,17 @@ export interface User {
   businessName?: string;
   businessDescription?: string;
   isOnline?: boolean;
+  isCertified?: boolean;
+  location?: string;
+  phoneAirtel?: string;
+  phoneMTN?: string;
+  socialHandles?: {
+    instagram?: string;
+    facebook?: string;
+    twitter?: string;
+    tiktok?: string;
+  };
+  coverPhoto?: string;
 }
 
 export interface Product {
@@ -38,6 +49,9 @@ export interface Product {
   visitCount: number;
   likeCount: number;
   isOnline?: boolean;
+  discount?: number;
+  bulkDiscountMinQty?: number;
+  bulkDiscountPercent?: number;
 }
 
 export interface Message {
