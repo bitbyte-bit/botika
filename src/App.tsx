@@ -1867,10 +1867,15 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
                 {user && (
                   <div className="space-y-3 p-4 bg-secondary/30 rounded-xl">
                     <h5 className="text-sm font-medium">Write a Review</h5>
-                    <div className="flex gap-1">
+                    <div className="flex gap-2">
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <button key={star} onClick={() => setNewReview({ ...newReview, rating: star })}>
-                          <Star className={`h-5 w-5 ${star <= newReview.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
+                        <button 
+                          key={star} 
+                          type="button"
+                          onClick={() => setNewReview({ ...newReview, rating: star })} 
+                          className="p-1"
+                        >
+                          <Star className={`h-6 w-6 ${star <= newReview.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
                         </button>
                       ))}
                     </div>
@@ -1879,8 +1884,14 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
                       value={newReview.comment}
                       onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
                       rows={3}
+                      className="resize-none"
                     />
-                    <Button size="sm" onClick={handleSubmitReview} disabled={isSubmittingReview}>
+                    <Button 
+                      size="lg" 
+                      className="w-full rounded-full" 
+                      onClick={handleSubmitReview} 
+                      disabled={isSubmittingReview}
+                    >
                       {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
                     </Button>
                   </div>
