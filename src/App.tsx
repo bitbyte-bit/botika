@@ -52,6 +52,7 @@ import { Toaster, toast } from 'sonner';
 
 import { User, Product, Order, CartItem, Review, Message, Follow, AppNotification, OperationType } from './types';
 import { api } from './services/api';
+import { requestNotificationPermission, subscribeToNewItems, sendPushNotification } from './services/push';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -130,7 +131,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const displayName = decoded.name;
       const photoURL = decoded.picture;
 
-      // Fetch user from SQL
       let sqlUser = await api.get(`/users/${uid}`);
       if (!sqlUser) {
         sqlUser = {
@@ -148,6 +148,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(sqlUser);
       setIsLoginModalOpen(false);
       toast.success(`Welcome back, ${displayName}!`);
+
+      const fcmToken = await requestNotificationPermission();
+      if (fcmToken) {
+        await subscribeToNewItems(fcmToken, uid);
+        toast.success("Notifications enabled for new items!");
+      }
     } catch (error) {
       console.error("Login failed", error);
       toast.error("Login failed. Please try again.");
@@ -242,6 +248,12 @@ const useCurrency = () => {
 
 // --- Components ---
 
+declare global {
+  interface Window {
+    executeRecaptcha?: (action: string) => Promise<string | null>;
+  }
+}
+
 const LoginModal = () => {
   const context = useContext(AuthContext);
   if (!context) return null;
@@ -252,10 +264,33 @@ const LoginModal = () => {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const verifyRecaptcha = async (): Promise<boolean> => {
+    try {
+      if (window.executeRecaptcha) {
+        const token = await window.executeRecaptcha(isSignUp ? 'SIGNUP' : 'LOGIN');
+        if (!token) {
+          toast.error("Security verification failed. Please try again.");
+          return false;
+        }
+        return true;
+      }
+      console.warn("Recaptcha not available, skipping verification");
+      return true;
+    } catch (error) {
+      console.error("Recaptcha error:", error);
+      return true;
+    }
+  };
+
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
+      const verified = await verifyRecaptcha();
+      if (!verified) {
+        setLoading(false);
+        return;
+      }
       if (isSignUp) {
         const newUser = await api.post('/auth/signup', { email, password, displayName });
         localStorage.setItem('bikuumba_user', JSON.stringify(newUser));
@@ -1491,9 +1526,9 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl p-0 overflow-hidden border-none bg-paper">
+      <DialogContent className="max-w-5xl p-0 overflow-hidden border-none bg-paper max-h-[90vh]">
         <div className="flex flex-col md:flex-row h-full max-h-[90vh]">
-          <div className="w-full md:w-1/2 bg-secondary relative">
+          <div className="w-full md:w-1/2 bg-secondary relative max-h-[50vh] md:max-h-none">
             <ScrollArea className="h-full">
               <div className="space-y-4 p-4">
                 {product.images.map((img, i) => (
@@ -1510,16 +1545,16 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
               <Heart className="h-5 w-5" />
             </Button>
           </div>
-          <div className="w-full md:w-1/2 p-8 flex flex-col">
-            <ScrollArea className="flex-1">
-              <div className="space-y-6 pr-4">
+          <div className="w-full md:w-1/2 flex flex-col h-[40vh] md:h-auto md:max-h-[90vh]">
+            <ScrollArea className="flex-1 overflow-hidden">
+              <div className="space-y-6 p-8 pb-4 pr-4">
                 <div className="space-y-2">
                   <Badge variant="outline" className="uppercase tracking-widest text-[10px]">{product.category}</Badge>
                   <h2 className="text-4xl serif">{product.name}</h2>
                   <p className="text-2xl font-light">{formatPrice(product.price)}</p>
                 </div>
 
-                <div className="flex items-center gap-4 py-4 border-y">
+                <div className="flex items-center gap-4 py-4 border-y flex-wrap">
                   <div className="flex items-center gap-1 text-amber-600">
                     <Star className="h-4 w-4 fill-current" />
                     <span className="font-medium">{product.ratingAvg}</span>
@@ -1539,7 +1574,7 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
 
                 <div className="space-y-4">
                   <h4 className="font-medium uppercase tracking-widest text-xs">Description</h4>
-                  <p className="text-muted-foreground leading-relaxed">{product.description}</p>
+                  <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{product.description}</p>
                 </div>
 
                 {product.authenticationDetails && (
@@ -1551,7 +1586,7 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
                   </div>
                 )}
 
-                <div className="space-y-4 pt-8">
+                <div className="space-y-4">
                   <h4 className="font-medium uppercase tracking-widest text-xs">Customer Reviews</h4>
                   {reviews.length === 0 ? (
                     <p className="text-sm text-muted-foreground italic">No reviews yet. Be the first to share your thoughts!</p>
@@ -1576,13 +1611,15 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
               </div>
             </ScrollArea>
 
-            <div className="pt-8 grid grid-cols-2 gap-4">
-              <Button size="lg" className="rounded-full h-14" onClick={() => onAddToCart(product)}>
-                Add to Bag
-              </Button>
-              <Button size="lg" variant="outline" className="rounded-full h-14" onClick={() => onChat(product)}>
-                <LayoutDashboard className="mr-2 h-5 w-5" /> Visit Boutique
-              </Button>
+            <div className="p-8 pt-4 border-t shrink-0 bg-paper">
+              <div className="grid grid-cols-2 gap-4">
+                <Button size="lg" className="rounded-full h-14" onClick={() => onAddToCart(product)}>
+                  Add to Bag
+                </Button>
+                <Button size="lg" variant="outline" className="rounded-full h-14" onClick={() => onChat(product)}>
+                  <LayoutDashboard className="mr-2 h-5 w-5" /> Visit Boutique
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -1591,7 +1628,7 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
   );
 };
 
-const SellerDashboard = ({ user }: { user: User }) => {
+const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string) => void }) => {
   const { setUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -1646,7 +1683,7 @@ const SellerDashboard = ({ user }: { user: User }) => {
       };
       await api.post('/users', updatedUser);
       localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
-      setUser(updatedUser);
+      setUser(updatedUser as User);
       toast.success("Business registered successfully! You can now start selling.");
       setIsRegistering(false);
       setView('inventory');
@@ -1756,6 +1793,13 @@ const SellerDashboard = ({ user }: { user: User }) => {
             type: 'system',
             read: false
           });
+
+          sendPushNotification(
+            followerId,
+            "New Item Posted!",
+            `${user.businessName || user.displayName} just posted: ${productData.name}`,
+            { productId: productData.id, type: 'new_item' }
+          );
         }
       }
 
@@ -2496,10 +2540,10 @@ const AppContent = () => {
   return (
     <div className="min-h-screen flex flex-col pb-16 md:pb-0 overflow-x-hidden">
       <Navbar onNavigate={setView} onOpenMenu={() => setIsMenuOpen(true)} onSearch={setSearchQuery} />
-         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-        <SheetContent side="left" className="w-[300px] sm:w-[400px] bg-ink text-paper border-none p-0">
-          <div className="h-full flex flex-col">
-            <div className="p-8 space-y-4">
+      <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+        <SheetContent side="left" className="w-[300px] sm:w-[400px] bg-ink text-paper border-none p-0 flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="p-8 space-y-4 shrink-0">
               <div className="flex justify-between items-center">
                 <h2 className="serif text-3xl text-paper tracking-tighter">BIKUUMBA</h2>
                 <Button variant="ghost" size="icon" className="text-paper/60 hover:text-paper" onClick={() => setIsMenuOpen(false)}>
@@ -2511,8 +2555,8 @@ const AppContent = () => {
               </p>
             </div>
 
-            <ScrollArea className="flex-1 px-8">
-              <div className="space-y-12 py-4">
+            <ScrollArea className="flex-1 px-8 overflow-hidden">
+              <div className="space-y-12 py-4 pr-4">
                 <div className="space-y-6">
                   <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Shop</h4>
                   <ul className="space-y-4 text-xl serif">
@@ -2554,7 +2598,7 @@ const AppContent = () => {
               </div>
             </ScrollArea>
 
-            <div className="p-8 border-t border-paper/10 bg-paper/5">
+            <div className="p-8 border-t border-paper/10 bg-paper/5 shrink-0">
               <div className="flex gap-4 text-[10px] uppercase tracking-widest text-paper/40">
                 <a href="#" className="hover:text-paper transition-colors">Privacy</a>
                 <a href="#" className="hover:text-paper transition-colors">Terms</a>
@@ -2614,7 +2658,7 @@ const AppContent = () => {
 
           {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
           {view === 'orders' && user && <OrdersView user={user} />}
-          {view === 'inventory' && user && <SellerDashboard user={user} />}
+          {view === 'inventory' && user && <SellerDashboard user={user} setView={setView} />}
           {view === 'admin' && user?.role === 'admin' && <AdminDashboard />}
           {view === 'profile' && <ProfileView onNavigate={setView} onSelectSeller={setSelectedSellerId} />}
         </AnimatePresence>

@@ -3,11 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <title>Bikuumba - Curated Boutique</title>
+    <script src="https://www.google.com/recaptcha/enterprise.js?render=6Le2UrMsAAAAAH38W9gS7QkHguvv3QMK2dgDCeDT"></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.executeRecaptcha = async (action) => {
+        if (typeof grecaptcha === 'undefined') {
+          console.error('Recaptcha not loaded');
+          return null;
+        }
+        return await grecaptcha.enterprise.execute('6Le2UrMsAAAAAH38W9gS7QkHguvv3QMK2dgDCeDT', { action });
+      };
+    </script>
   </body>
 </html>
 

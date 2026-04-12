@@ -2,8 +2,19 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import crypto from "crypto";
 import Database from "better-sqlite3";
 import cors from "cors";
+import webpush from "web-push";
+
+const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
+const GOOGLE_CLIENT_ID = "117188235400499142560";
+
+webpush.setVapidDetails(
+  "https://botika-4y78.onrender.com",
+  FCM_PUBLIC_KEY,
+  "4Qi58W1Wqwh9HSV7yrOTkJ8v69erh2at63vB5PR4-1A"
+);
 
 if (process.argv.includes("production")) {
   process.env.NODE_ENV = "production";
@@ -93,6 +104,13 @@ db.exec(`
     userName TEXT,
     rating INTEGER,
     comment TEXT,
+    createdAt TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS fcm_tokens (
+    id TEXT PRIMARY KEY,
+    userId TEXT,
+    token TEXT,
     createdAt TEXT
   );
 `);
@@ -284,6 +302,47 @@ async function startServer() {
     `);
     stmt.run(id, productId, userId, userName, rating, comment, createdAt);
     res.json({ success: true });
+  });
+
+  app.post("/api/notifications/subscribe", (req, res) => {
+    const { token, userId } = req.body;
+    if (!token || !userId) {
+      return res.status(400).json({ error: "Token and userId required" });
+    }
+    const existing = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
+    if (existing) {
+      db.prepare("UPDATE fcm_tokens SET token = ?, createdAt = ? WHERE userId = ?").run(token, new Date().toISOString(), userId);
+    } else {
+      const stmt = db.prepare(`
+        INSERT INTO fcm_tokens (id, userId, token, createdAt)
+        VALUES (?, ?, ?, ?)
+      `);
+      stmt.run(crypto.randomUUID(), userId, token, new Date().toISOString());
+    }
+    res.json({ success: true });
+  });
+
+  app.post("/api/notifications/send", async (req, res) => {
+    const { userId, title, body, data } = req.body;
+    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
+    if (!tokenEntry) {
+      console.log(`No FCM token found for user ${userId}`);
+      return res.json({ success: false, error: "No token" });
+    }
+    try {
+      await webpush.sendNotification(
+        JSON.parse(tokenEntry.token),
+        JSON.stringify({ title, body, data })
+      );
+      console.log(`Push sent to ${userId}: ${title}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Push notification error:", error.message);
+      if (error.statusCode === 410) {
+        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
+      }
+      res.json({ success: false, error: error.message });
+    }
   });
 
   if (process.env.NODE_ENV !== "production") {
