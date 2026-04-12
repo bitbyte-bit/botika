@@ -5,12 +5,16 @@ import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import cors from "cors";
 
+if (process.argv.includes("production")) {
+  process.env.NODE_ENV = "production";
+  console.log("Running in production mode");
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const db = new Database("bikuumba.db");
 
-// Initialize Database
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     uid TEXT PRIMARY KEY,
@@ -30,7 +34,7 @@ db.exec(`
     description TEXT,
     price REAL,
     category TEXT,
-    images TEXT, -- JSON array
+    images TEXT,
     stock INTEGER,
     isAuthentic INTEGER,
     authenticationDetails TEXT,
@@ -46,12 +50,12 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     customerId TEXT,
-    items TEXT, -- JSON array
+    items TEXT,
     total REAL,
     status TEXT,
     paymentId TEXT,
     trackingNumber TEXT,
-    sellerIds TEXT, -- JSON array
+    sellerIds TEXT,
     createdAt TEXT
   );
 
@@ -109,9 +113,6 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // API Routes
-  
-  // Users
   app.get("/api/users/:uid", (req, res) => {
     const user = db.prepare("SELECT * FROM users WHERE uid = ?").get(req.params.uid);
     res.json(user || null);
@@ -127,7 +128,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Auth
   app.post("/api/auth/signup", (req, res) => {
     const { email, password, displayName } = req.body;
     const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
@@ -166,10 +166,9 @@ async function startServer() {
     res.json(users);
   });
 
-  // Products
   app.get("/api/products", (req, res) => {
     const products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
-    res.json(products.map((p: any) => ({ ...p, images: JSON.parse(p.images as string) })));
+    res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
   });
 
   app.post("/api/products", (req, res) => {
@@ -187,13 +186,12 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Orders
   app.get("/api/orders", (req, res) => {
     const orders = db.prepare("SELECT * FROM orders ORDER BY createdAt DESC").all();
-    res.json(orders.map((o: any) => ({ 
+    res.json(orders.map((o) => ({ 
       ...o, 
-      items: JSON.parse(o.items as string),
-      sellerIds: JSON.parse(o.sellerIds as string)
+      items: JSON.parse(o.items),
+      sellerIds: JSON.parse(o.sellerIds)
     })));
   });
 
@@ -207,10 +205,9 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Messages
   app.get("/api/messages/:userId", (req, res) => {
     const messages = db.prepare("SELECT * FROM messages WHERE receiverId = ? OR senderId = ? ORDER BY createdAt DESC").all(req.params.userId, req.params.userId);
-    res.json(messages.map((m: any) => ({ ...m, read: !!m.read })));
+    res.json(messages.map((m) => ({ ...m, read: !!m.read })));
   });
 
   app.post("/api/messages", (req, res) => {
@@ -228,7 +225,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Follows
   app.get("/api/follows/:userId", (req, res) => {
     const follows = db.prepare("SELECT * FROM follows WHERE followerId = ?").all(req.params.userId);
     res.json(follows);
@@ -255,10 +251,9 @@ async function startServer() {
     res.json(follows);
   });
 
-  // Notifications
   app.get("/api/notifications/:userId", (req, res) => {
     const notifications = db.prepare("SELECT * FROM notifications WHERE userId = ? ORDER BY createdAt DESC").all(req.params.userId);
-    res.json(notifications.map((n: any) => ({ ...n, read: !!n.read })));
+    res.json(notifications.map((n) => ({ ...n, read: !!n.read })));
   });
 
   app.post("/api/notifications", (req, res) => {
@@ -276,7 +271,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Reviews
   app.get("/api/reviews/:productId", (req, res) => {
     const reviews = db.prepare("SELECT * FROM reviews WHERE productId = ? ORDER BY createdAt DESC").all(req.params.productId);
     res.json(reviews);
@@ -292,7 +286,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
