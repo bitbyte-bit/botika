@@ -8,7 +8,7 @@ import cors from "cors";
 import webpush from "web-push";
 
 const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
-const GOOGLE_CLIENT_ID = "117188235400499142560";
+const GOOGLE_CLIENT_ID = "404097461636-jom6viui6ke6evo5h40o8gr2elo59d55.apps.googleusercontent.com";
 
 webpush.setVapidDetails(
   "https://botika-4y78.onrender.com",
@@ -122,6 +122,15 @@ if (!masterAdminExists) {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run('master-admin', 'bikuumba26@gmail.com', 'Master Admin', '', 'master', new Date().toISOString(), 'bikuumba');
+}
+
+const adminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba@gmail.com');
+if (!adminExists) {
+  const stmt = db.prepare(`
+    INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run('admin-user', 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', new Date().toISOString(), 'bikuumba');
 }
 
 async function startServer() {

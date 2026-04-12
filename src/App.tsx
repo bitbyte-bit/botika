@@ -263,31 +263,14 @@ const LoginModal = () => {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const verifyRecaptcha = async (): Promise<boolean> => {
-    try {
-      if (window.executeRecaptcha) {
-        const token = await window.executeRecaptcha(isSignUp ? 'SIGNUP' : 'LOGIN');
-        if (!token) {
-          toast.error("Security verification failed. Please try again.");
-          return false;
-        }
-        return true;
-      }
-      console.warn("Recaptcha not available, skipping verification");
-      return true;
-    } catch (error) {
-      console.error("Recaptcha error:", error);
-      return true;
-    }
-  };
+  const [notRobot, setNotRobot] = useState(false);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const verified = await verifyRecaptcha();
-      if (!verified) {
+      if (isSignUp && !notRobot) {
+        toast.error("Please confirm you are not a robot");
         setLoading(false);
         return;
       }
@@ -311,7 +294,7 @@ const LoginModal = () => {
 
   return (
     <Dialog open={isLoginModalOpen} onOpenChange={setIsLoginModalOpen}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="serif text-3xl text-center">
             {isSignUp ? 'Create Account' : 'Welcome to Bikuumba'}
@@ -353,6 +336,20 @@ const LoginModal = () => {
               required 
             />
           </div>
+          {isSignUp && (
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="notRobot"
+                checked={notRobot}
+                onChange={e => setNotRobot(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="notRobot" className="text-sm text-muted-foreground">
+                I'm not a robot
+              </label>
+            </div>
+          )}
           <Button type="submit" className="w-full h-12 text-lg rounded-full" disabled={loading}>
             {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
           </Button>
