@@ -1783,134 +1783,131 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl p-0 overflow-hidden border-none bg-paper max-h-[90vh]">
-        <div className="flex flex-col md:flex-row h-full max-h-[90vh]">
-          <div className="w-full md:w-1/2 bg-secondary relative max-h-[50vh] md:max-h-none overflow-hidden">
+      <DialogContent className="max-w-4xl p-0 overflow-hidden border-none bg-paper max-h-[90vh]">
+        <ScrollArea className="h-full max-h-[90vh]">
+          <div className="space-y-6">
             {product.discount && product.discount > 0 && (
               <Badge className="absolute top-4 left-4 z-10 bg-red-600 text-white text-lg px-3 py-1">
                 -{product.discount}% OFF
               </Badge>
             )}
-            <img 
-              src={product.images[0]} 
-              alt={product.name} 
-              className="h-full w-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <Button 
-              size="icon" 
-              variant="secondary" 
-              className="absolute top-6 right-6 rounded-full bg-paper/80 backdrop-blur-sm hover:bg-paper"
-              onClick={handleLike}
-            >
-              <Heart className="h-5 w-5" />
-            </Button>
-          </div>
-          <div className="w-full md:w-1/2 flex flex-col h-[40vh] md:h-auto md:max-h-[90vh]">
-            <ScrollArea className="flex-1 overflow-hidden">
-              <div className="space-y-6 p-8 pb-4 pr-4">
-                <div className="space-y-2">
-                  <Badge variant="outline" className="uppercase tracking-widest text-[10px]">{product.category}</Badge>
-                  <h2 className="text-4xl serif">{product.name}</h2>
-                  <div className="flex items-center gap-3">
-                    {discountedPrice ? (
-                      <>
-                        <span className="text-2xl font-light">{formatPrice(discountedPrice)}</span>
-                        <span className="text-lg text-muted-foreground line-through">{formatPrice(product.price)}</span>
-                      </>
-                    ) : (
-                      <span className="text-2xl font-light">{formatPrice(product.price)}</span>
-                    )}
-                  </div>
-                  {product.bulkDiscountMinQty && product.bulkDiscountPercent && (
-                    <Badge variant="secondary" className="mt-2">
-                      Buy {product.bulkDiscountMinQty}+ get {product.bulkDiscountPercent}% extra off!
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-4 py-4 border-y flex-wrap">
-                  <div className="flex items-center gap-1 text-amber-600">
-                    <Star className="h-4 w-4 fill-current" />
-                    <span className="font-medium">{product.ratingAvg}</span>
-                  </div>
-                  <Separator orientation="vertical" className="h-4" />
-                  <span className="text-sm text-muted-foreground">{product.reviewCount} Reviews</span>
-                  {product.isAuthentic && (
+            <div className="w-full bg-secondary relative">
+              <img 
+                src={product.images[0]} 
+                alt={product.name} 
+                className="w-full h-auto max-h-[60vh] object-contain"
+                referrerPolicy="no-referrer"
+              />
+              <Button 
+                size="icon" 
+                variant="secondary" 
+                className="absolute top-4 right-4 rounded-full bg-paper/80 backdrop-blur-sm hover:bg-paper"
+                onClick={handleLike}
+              >
+                <Heart className="h-5 w-5" />
+              </Button>
+            </div>
+            
+            <div className="px-8 pb-8 space-y-6">
+              <div className="space-y-2">
+                <Badge variant="outline" className="uppercase tracking-widest text-[10px]">{product.category}</Badge>
+                <h2 className="text-4xl serif">{product.name}</h2>
+                <div className="flex items-center gap-3">
+                  {discountedPrice ? (
                     <>
-                      <Separator orientation="vertical" className="h-4" />
-                      <div className="flex items-center gap-1 text-emerald-700">
-                        <ShieldCheck className="h-4 w-4" />
-                        <span className="text-sm font-medium">Authenticity Verified</span>
-                      </div>
+                      <span className="text-2xl font-light">{formatPrice(discountedPrice)}</span>
+                      <span className="text-lg text-muted-foreground line-through">{formatPrice(product.price)}</span>
                     </>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="font-medium uppercase tracking-widest text-xs">Description</h4>
-                  <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{product.description}</p>
-                </div>
-
-                {product.authenticationDetails && (
-                  <div className="bg-secondary/50 p-4 rounded-xl space-y-2">
-                    <h4 className="font-medium text-xs uppercase tracking-widest flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4" /> Authentication Details
-                    </h4>
-                    <p className="text-sm text-muted-foreground italic">{product.authenticationDetails}</p>
-                  </div>
-                )}
-
-                <div className="space-y-4">
-                  <h4 className="font-medium uppercase tracking-widest text-xs">Customer Reviews</h4>
-                  
-                  {user && (
-                    <div className="space-y-3 p-4 bg-secondary/30 rounded-xl">
-                      <h5 className="text-sm font-medium">Write a Review</h5>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button key={star} onClick={() => setNewReview({ ...newReview, rating: star })}>
-                            <Star className={`h-5 w-5 ${star <= newReview.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
-                          </button>
-                        ))}
-                      </div>
-                      <Textarea 
-                        placeholder="Share your experience with this product..."
-                        value={newReview.comment}
-                        onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
-                        rows={3}
-                      />
-                      <Button size="sm" onClick={handleSubmitReview} disabled={isSubmittingReview}>
-                        {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {reviews.length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic">No reviews yet. Be the first to share your thoughts!</p>
                   ) : (
-                    <div className="space-y-6">
-                      {reviews.map(review => (
-                        <div key={review.id} className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="font-medium text-sm">{review.userName}</span>
-                            <div className="flex gap-0.5">
-                              {[...Array(5)].map((_, i) => (
-                                <Star key={i} className={`h-3 w-3 ${i < review.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
-                              ))}
-                            </div>
-                          </div>
-                          <p className="text-sm text-muted-foreground">{review.comment}</p>
-                        </div>
+                    <span className="text-2xl font-light">{formatPrice(product.price)}</span>
+                  )}
+                </div>
+                {product.bulkDiscountMinQty && product.bulkDiscountPercent && (
+                  <Badge variant="secondary" className="mt-2">
+                    Buy {product.bulkDiscountMinQty}+ get {product.bulkDiscountPercent}% extra off!
+                  </Badge>
+                )}
+              </div>
+
+              <div className="flex items-center gap-4 py-4 border-y flex-wrap">
+                <div className="flex items-center gap-1 text-amber-600">
+                  <Star className="h-4 w-4 fill-current" />
+                  <span className="font-medium">{product.ratingAvg}</span>
+                </div>
+                <Separator orientation="vertical" className="h-4" />
+                <span className="text-sm text-muted-foreground">{product.reviewCount} Reviews</span>
+                {product.isAuthentic && (
+                  <>
+                    <Separator orientation="vertical" className="h-4" />
+                    <div className="flex items-center gap-1 text-emerald-700">
+                      <ShieldCheck className="h-4 w-4" />
+                      <span className="text-sm font-medium">Authenticity Verified</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="font-medium uppercase tracking-widest text-xs">Description</h4>
+                <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{product.description}</p>
+              </div>
+
+              {product.authenticationDetails && (
+                <div className="bg-secondary/50 p-4 rounded-xl space-y-2">
+                  <h4 className="font-medium text-xs uppercase tracking-widest flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4" /> Authentication Details
+                  </h4>
+                  <p className="text-sm text-muted-foreground italic">{product.authenticationDetails}</p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <h4 className="font-medium uppercase tracking-widest text-xs">Customer Reviews</h4>
+                
+                {user && (
+                  <div className="space-y-3 p-4 bg-secondary/30 rounded-xl">
+                    <h5 className="text-sm font-medium">Write a Review</h5>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button key={star} onClick={() => setNewReview({ ...newReview, rating: star })}>
+                          <Star className={`h-5 w-5 ${star <= newReview.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
+                        </button>
                       ))}
                     </div>
-                  )}
-                </div>
+                    <Textarea 
+                      placeholder="Share your experience with this product..."
+                      value={newReview.comment}
+                      onChange={(e) => setNewReview({ ...newReview, comment: e.target.value })}
+                      rows={3}
+                    />
+                    <Button size="sm" onClick={handleSubmitReview} disabled={isSubmittingReview}>
+                      {isSubmittingReview ? 'Submitting...' : 'Submit Review'}
+                    </Button>
+                  </div>
+                )}
+                
+                {reviews.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">No reviews yet. Be the first to share your thoughts!</p>
+                ) : (
+                  <div className="space-y-6">
+                    {reviews.map(review => (
+                      <div key={review.id} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-sm">{review.userName}</span>
+                          <div className="flex gap-0.5">
+                            {[...Array(5)].map((_, i) => (
+                              <Star key={i} className={`h-3 w-3 ${i < review.rating ? 'fill-amber-600 text-amber-600' : 'text-muted'}`} />
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{review.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </ScrollArea>
 
-            <div className="p-8 pt-4 border-t shrink-0 bg-paper">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t">
                 <Button size="lg" className="rounded-full h-14" onClick={() => onAddToCart(product)}>
                   Add to Bag
                 </Button>
@@ -1920,7 +1917,7 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
               </div>
             </div>
           </div>
-        </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   );
