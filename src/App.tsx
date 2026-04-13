@@ -374,7 +374,7 @@ const LoginModal = () => {
 
         <div className="flex flex-col items-center justify-center space-y-4">
           <GoogleLogin
-            clientId="404097461636-jom6viui6ke6evo5h40o8gr2elo59d55.apps.googleusercontent.com"
+            clientId="404097461636-aonin006mvkteduki0q2og8via6ia5e8.apps.googleusercontent.com"
             onSuccess={handleGoogleSuccess}
             onError={() => {
               toast.error("Login Failed");
