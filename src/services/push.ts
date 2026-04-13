@@ -1,17 +1,15 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage, Messaging } from 'firebase/messaging';
+const VAPID_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDHB8M8T5Tk6P5W9gS7QkHguvv3QMK2dgDCeDT",
-  authDomain: "bikuumba.firebaseapp.com",
-  projectId: "bikuumba",
-  storageBucket: "bikuumba.appspot.com",
-  messagingSenderId: "117188235400499142560",
-  appId: "1:117188235400499142560:web:abcdef123456"
-};
-
-let app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-let messaging: Messaging | null = null;
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 export const requestNotificationPermission = async (): Promise<string | null> => {
   if (typeof window === 'undefined') return null;
@@ -28,22 +26,36 @@ export const requestNotificationPermission = async (): Promise<string | null> =>
   }
 
   try {
-    messaging = getMessaging(app);
-    const token = await getToken(messaging, {
-      vapidKey: "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0"
-    });
-    return token;
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      const existingPush = await registration.pushManager.getSubscription();
+      
+      if (existingPush) {
+        return JSON.stringify(existingPush.toJSON());
+      }
+      
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      
+      return JSON.stringify(subscription.toJSON());
+    }
+    return null;
   } catch (error) {
-    console.error("Failed to get notification token:", error);
+    console.error("Failed to get notification permission:", error);
     return null;
   }
 };
 
 export const onForegroundMessage = (callback: (payload: any) => void) => {
-  if (!messaging) {
-    messaging = getMessaging(app);
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'push') {
+        callback(event.data.payload);
+      }
+    });
   }
-  return onMessage(messaging, callback);
 };
 
 export const subscribeToNewItems = async (token: string, userId: string) => {

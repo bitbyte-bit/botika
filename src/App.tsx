@@ -374,6 +374,7 @@ const LoginModal = () => {
 
         <div className="flex flex-col items-center justify-center space-y-4">
           <GoogleLogin
+            clientId="404097461636-jom6viui6ke6evo5h40o8gr2elo59d55.apps.googleusercontent.com"
             onSuccess={handleGoogleSuccess}
             onError={() => {
               toast.error("Login Failed");
@@ -404,7 +405,6 @@ const LoginModal = () => {
 
 const BottomNav = ({ currentView, onNavigate }: { currentView: string, onNavigate: (view: string) => void }) => {
   const { user, login } = useAuth();
-  const { itemCount } = useCart();
 
   const handleBusinessClick = () => {
     if (!user) {
@@ -418,7 +418,6 @@ const BottomNav = ({ currentView, onNavigate }: { currentView: string, onNavigat
     { id: 'home', label: 'Home', icon: Home },
     { id: 'inbox', label: 'Inbox', icon: MessageSquare },
     { id: 'inventory', label: 'Business', icon: LayoutDashboard, action: handleBusinessClick },
-    { id: 'cart', label: 'Bag', icon: ShoppingBag, badge: itemCount },
     { id: 'profile', label: 'Profile', icon: UserIcon },
   ];
 
@@ -1511,13 +1510,13 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
                 )}
               </Button>
             </SheetTrigger>
-            <SheetContent className="w-full sm:max-w-md">
+            <SheetContent className="w-full sm:max-w-md flex flex-col">
               <SheetHeader>
                 <SheetTitle className="serif text-2xl">Your Bag</SheetTitle>
                 <SheetDescription>Review your items before checkout.</SheetDescription>
               </SheetHeader>
-              <div className="mt-8 flex flex-col gap-6 h-[calc(100vh-200px)]">
-                <ScrollArea className="flex-1 pr-4">
+              <div className="mt-8 flex-1 flex flex-col gap-6 overflow-hidden">
+                <ScrollArea className="flex-1 h-0 pr-4">
                   {items.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                       <ShoppingBag className="h-12 w-12 mb-2 opacity-20" />
@@ -1550,7 +1549,7 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
                   )}
                 </ScrollArea>
                 {items.length > 0 && (
-                  <div className="space-y-4 pt-4 border-t">
+                  <div className="space-y-4 pt-4 border-t mt-auto shrink-0">
                     <div className="flex justify-between text-lg font-medium">
                       <span>Total</span>
                       <span>{formatPrice(total)}</span>
