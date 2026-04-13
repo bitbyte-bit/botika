@@ -8,8 +8,8 @@ import cors from "cors";
 import webpush from "web-push";
 
 const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
-const GOOGLE_CLIENT_ID = "404097461636-aonin006mvkteduki0q2og8via6ia5e8.apps.googleusercontent.com";
-const GOOGLE_CLIENT_SECRET = "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";
+const GOOGLE_CLIENT_ID = " ";
+const GOOGLE_CLIENT_SECRET = " ";
 
 webpush.setVapidDetails(
   "https://botika-4y78.onrender.com",
