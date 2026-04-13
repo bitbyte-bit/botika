@@ -36,7 +36,11 @@ import {
   Instagram,
   Facebook,
   Twitter,
-  Video
+  Video,
+  Send,
+  Paperclip,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -59,6 +63,7 @@ import { Toaster, toast } from 'sonner';
 import { User, Product, Order, CartItem, Review, Message, Follow, AppNotification, OperationType } from './types';
 import { api } from './services/api';
 import { requestNotificationPermission, subscribeToNewItems, sendPushNotification } from './services/push';
+import { generateEncryptionKey, encryptMessage, decryptMessage } from './services/encryption';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -254,18 +259,6 @@ const useCurrency = () => {
 
 // --- Components ---
 
-declare global {
-  interface Window {
-    executeRecaptcha?: (action: string) => Promise<string | null>;
-    grecaptcha?: {
-      enterprise: {
-        render: (element: string, options: any) => number;
-        execute: (sitekey: string, options: any) => Promise<string>;
-      };
-    };
-  }
-}
-
 const LoginModal = () => {
   const context = useContext(AuthContext);
   if (!context) return null;
@@ -281,16 +274,7 @@ const LoginModal = () => {
     setLoading(true);
     try {
       if (isSignUp) {
-        let token = null;
-        if (window.executeRecaptcha) {
-          token = await window.executeRecaptcha('signup');
-        }
-        if (!token) {
-          toast.error("Please complete the recaptcha verification");
-          setLoading(false);
-          return;
-        }
-        const newUser = await api.post('/auth/signup', { email, password, displayName, recaptchaToken: token });
+        const newUser = await api.post('/auth/signup', { email, password, displayName });
         localStorage.setItem('bikuumba_user', JSON.stringify(newUser));
         setUser(newUser);
       } else {
@@ -374,7 +358,6 @@ const LoginModal = () => {
 
         <div className="flex flex-col items-center justify-center space-y-4">
           <GoogleLogin
-            clientId="404097461636-aonin006mvkteduki0q2og8via6ia5e8.apps.googleusercontent.com"
             onSuccess={handleGoogleSuccess}
             onError={() => {
               toast.error("Login Failed");
@@ -435,14 +418,7 @@ const BottomNav = ({ currentView, onNavigate }: { currentView: string, onNavigat
                 isActive ? 'text-accent' : 'text-muted-foreground'
               }`}
             >
-              <div className="relative">
-                <Icon className="h-5 w-5" />
-                {item.badge !== undefined && item.badge > 0 && (
-                  <Badge className="absolute -right-2 -top-2 h-4 w-4 justify-center rounded-full p-0 text-[8px]">
-                    {item.badge}
-                  </Badge>
-                )}
-              </div>
+              <Icon className="h-5 w-5" />
               <span className="text-[10px] font-medium">{item.label}</span>
             </button>
           );
@@ -458,29 +434,48 @@ const InboxView = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<{users: User[], businesses: any[]}>({ users: [], businesses: [] });
+  const [searchResults, setSearchResults] = useState<{users: User[], onlineUsers: string[]}>({ users: [], onlineUsers: [] });
   const [searching, setSearching] = useState(false);
+  const [selectedChat, setSelectedChat] = useState<User | null>(null);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [swipeAction, setSwipeAction] = useState<{ messageId: string; action: 'reply' | 'delete' } | null>(null);
+
+  const handleSwipe = (msgId: string, direction: 'left' | 'right') => {
+    if (direction === 'left') {
+      const msg = chatMessages.find(m => m.id === msgId);
+      if (msg) setReplyTo(msg);
+    } else {
+      setSwipeAction({ messageId: msgId, action: 'delete' });
+    }
+  };
+
+  const confirmDelete = async (msgId: string) => {
+    await api.delete(`/messages/${msgId}`);
+    setChatMessages(prev => prev.filter(m => m.id !== msgId));
+    setSwipeAction(null);
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const allUsers = await api.get('/users');
-      const allProducts = await api.get('/products');
+      const [allUsers, onlineUsers] = await Promise.all([
+        api.get('/users'),
+        api.get('/users/online')
+      ]);
       
       const query = searchQuery.toLowerCase();
       
-      const users = allUsers.filter((u: User) => 
+      const users = (allUsers as User[]).filter((u: User) => 
         (u.displayName?.toLowerCase().includes(query) || u.email?.toLowerCase().includes(query)) &&
-        u.role !== 'admin'
+        u.role !== 'admin' &&
+        u.uid !== user?.uid
       );
       
-      const businesses = allProducts
-        .filter((p: Product) => p.sellerName?.toLowerCase().includes(query) && p.isOnline)
-        .map((p: Product) => ({ ...p.seller, productName: p.name }))
-        .filter((b: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === b.id) === i);
-      
-      setSearchResults({ users, businesses });
+      setSearchResults({ users, onlineUsers });
     } catch (error) {
       console.error("Search failed", error);
     } finally {
@@ -510,9 +505,118 @@ const InboxView = () => {
 
   useEffect(() => {
     fetchInbox();
-    const interval = setInterval(fetchInbox, 5000); // Poll every 5s
+    const interval = setInterval(fetchInbox, 5000);
     return () => clearInterval(interval);
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      api.post('/users/status', { userId: user.uid, isOnline: true });
+      const interval = setInterval(() => {
+        api.post('/users/status', { userId: user.uid, isOnline: true });
+      }, 60000);
+      return () => {
+        api.post('/users/status', { userId: user.uid, isOnline: false });
+        clearInterval(interval);
+      };
+    }
+  }, [user]);
+
+  const openChat = async (chatUser: User) => {
+    setSelectedChat(chatUser);
+    if (user) {
+      const msgs = await api.get(`/messages/conversation/${user.uid}/${chatUser.uid}`);
+      setChatMessages(msgs);
+      msgs.filter((m: Message) => m.receiverId === user.uid && !m.read).forEach((m: Message) => {
+        api.patch(`/messages/${m.id}/read`);
+        api.post('/messages/receipts', {
+          id: crypto.randomUUID(),
+          messageId: m.id,
+          userId: user.uid,
+          readAt: new Date().toISOString(),
+          deliveredAt: new Date().toISOString()
+        });
+      });
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!user || !newMessage.trim() || !selectedChat) return;
+    
+    const encryptionKey = generateEncryptionKey(user.uid, selectedChat.uid);
+    const encryptedContent = encryptMessage(newMessage, encryptionKey);
+    
+    const msgId = crypto.randomUUID();
+    const msg: Message = {
+      id: msgId,
+      senderId: user.uid,
+      senderName: user.displayName,
+      receiverId: selectedChat.uid,
+      content: encryptedContent,
+      createdAt: new Date().toISOString(),
+      type: 'text',
+      read: false,
+      replyTo: replyTo?.id || undefined,
+      isEncrypted: true
+    };
+    
+    await api.post('/messages', msg);
+    
+    if (replyTo) {
+      setReplyTo(null);
+    }
+    
+    setChatMessages(prev => [...prev, { ...msg, content: newMessage, isEncrypted: false }]);
+    setNewMessage('');
+    
+    const tokenEntry = await api.get(`/users/${selectedChat.uid}`);
+    if (tokenEntry) {
+      await api.post('/notifications/send', {
+        userId: selectedChat.uid,
+        title: `New message from ${user.displayName}`,
+        body: newMessage.substring(0, 50),
+        data: { type: 'message', senderId: user.uid }
+      });
+    }
+  };
+
+  const sendAttachment = async (file: File) => {
+    if (!user || !selectedChat) return;
+    
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const msgId = crypto.randomUUID();
+      const msg: Message = {
+        id: msgId,
+        senderId: user.uid,
+        senderName: user.displayName,
+        receiverId: selectedChat.uid,
+        content: file.name,
+        createdAt: new Date().toISOString(),
+        type: file.type.startsWith('image') ? 'image' : 'file',
+        read: false,
+        attachment: reader.result as string
+      };
+      
+      await api.post('/messages', msg);
+      await api.post('/messages/attachments', {
+        id: crypto.randomUUID(),
+        messageId: msgId,
+        fileName: file.name,
+        fileType: file.type,
+        fileUrl: reader.result,
+        createdAt: new Date().toISOString()
+      });
+      
+      setChatMessages(prev => [...prev, msg]);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const deleteMessage = async (msgId: string) => {
+    await api.delete(`/messages/${msgId}`);
+    setChatMessages(prev => prev.filter(m => m.id !== msgId));
+  };
 
   const markMessageAsRead = async (msgId: string) => {
     try {
@@ -542,6 +646,130 @@ const InboxView = () => {
     </div>
   );
 
+  if (selectedChat) {
+    return (
+      <div className="container mx-auto px-4 py-4 pb-24 h-screen flex flex-col">
+        <div className="flex items-center gap-4 mb-4">
+          <Button variant="ghost" size="icon" onClick={() => setSelectedChat(null)}>
+            <ChevronRight className="h-5 w-5 rotate-180" />
+          </Button>
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={selectedChat.photoURL || undefined} />
+            <AvatarFallback>{selectedChat.displayName[0]}</AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="font-medium">{selectedChat.displayName}</p>
+            <p className="text-xs text-muted-foreground">Tap for info</p>
+          </div>
+        </div>
+        
+        <ScrollArea className="flex-1 mb-4">
+          <div className="space-y-4 p-4">
+            {chatMessages.map((msg) => (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
+              >
+                <div 
+                  className={`max-w-[70%] p-3 rounded-2xl touch-pan-y ${
+                    msg.senderId === user.uid 
+                      ? 'bg-accent text-accent-foreground' 
+                      : 'bg-secondary'
+                  }`}
+                  onTouchStart={(e) => {
+                    const touch = e.touches[0];
+                    (window as any).__touchStartX = touch.clientX;
+                  }}
+                  onTouchEnd={(e) => {
+                    const touch = e.changedTouches[0];
+                    const startX = (window as any).__touchStartX;
+                    const diff = touch.clientX - startX;
+                    if (Math.abs(diff) > 50) {
+                      handleSwipe(msg.id, diff > 0 ? 'right' : 'left');
+                    }
+                  }}
+                >
+                  {msg.replyTo && (
+                    <div className="text-xs opacity-60 mb-2 border-l-2 pl-2">
+                      Reply to: {chatMessages.find(m => m.id === msg.replyTo)?.content || 'Message'}
+                    </div>
+                  )}
+                  {msg.type === 'image' ? (
+                    <img src={msg.attachment as string || msg.content} alt="attachment" className="rounded-lg max-w-full" />
+                  ) : msg.type === 'file' ? (
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4" />
+                      <span className="text-sm">{msg.content}</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm">{(msg as any).isEncrypted ? decryptMessage(msg.content, generateEncryptionKey(user.uid, selectedChat.uid)) : msg.content}</p>
+                  )}
+                  <div className="flex items-center justify-end gap-1 mt-1">
+                    <span className="text-[10px] opacity-60">
+                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {msg.senderId === user.uid && (
+                      msg.read ? <CheckCheck className="h-3 w-3 opacity-60" /> : <Check className="h-3 w-3 opacity-60" />
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </ScrollArea>
+        
+        {replyTo && (
+          <div className="flex items-center gap-2 p-2 bg-secondary/50 rounded-lg mb-2">
+            <span className="text-xs">Replying to: {replyTo.content.substring(0, 30)}...</span>
+            <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => setReplyTo(null)}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+        
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Type a message..."
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          />
+          <Button size="icon" onClick={() => document.getElementById('attachment-input')?.click()}>
+            <Paperclip className="h-4 w-4" />
+          </Button>
+          <input
+            id="attachment-input"
+            type="file"
+            className="hidden"
+            accept="image/*,.pdf,.doc,.docx"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) sendAttachment(file);
+            }}
+          />
+          <Button size="icon" onClick={sendMessage}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <Dialog open={!!swipeAction} onOpenChange={() => setSwipeAction(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Message?</DialogTitle>
+              <DialogDescription>This action cannot be undone.</DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setSwipeAction(null)}>Cancel</Button>
+              <Button variant="destructive" className="flex-1" onClick={() => swipeAction && confirmDelete(swipeAction.messageId)}>Delete</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
       <div className="flex items-center justify-between">
@@ -555,8 +783,8 @@ const InboxView = () => {
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Search Users & Businesses</DialogTitle>
-            <DialogDescription>Search for registered users and businesses with online badge</DialogDescription>
+            <DialogTitle>Search Users</DialogTitle>
+            <DialogDescription>Find users to chat with</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Input
@@ -566,42 +794,36 @@ const InboxView = () => {
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
             {searching && <p className="text-sm text-muted-foreground">Searching...</p>}
-            {!searching && searchResults.users.length === 0 && searchResults.businesses.length === 0 && searchQuery && (
+            {!searching && searchResults.users.length === 0 && searchQuery && (
               <p className="text-sm text-muted-foreground">No results found.</p>
             )}
             {searchResults.users.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-sm font-medium">Users</h4>
-                {searchResults.users.slice(0, 5).map((u) => (
-                  <div key={u.uid} className="flex items-center gap-3 p-2 rounded-lg bg-secondary/50">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={u.photoURL || undefined} />
-                      <AvatarFallback>{u.displayName?.[0]?.toUpperCase() || '?'}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{u.displayName}</p>
-                      <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                {searchResults.users.slice(0, 10).map((u) => {
+                  const isOnline = searchResults.onlineUsers.includes(u.uid);
+                  return (
+                    <div 
+                      key={u.uid} 
+                      className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 cursor-pointer hover:bg-secondary"
+                      onClick={() => { setSearchOpen(false); openChat(u); }}
+                    >
+                      <div className="relative">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={u.photoURL || undefined} />
+                          <AvatarFallback>{u.displayName?.[0]?.toUpperCase() || '?'}</AvatarFallback>
+                        </Avatar>
+                        {isOnline && (
+                          <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-background" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{u.displayName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                      </div>
+                      {isOnline && <Badge className="bg-green-500 text-white text-[10px]">Online</Badge>}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {searchResults.businesses.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">Businesses (Online)</h4>
-                {searchResults.businesses.slice(0, 5).map((b) => (
-                  <div key={b.id} className="flex items-center gap-3 p-2 rounded-lg bg-secondary/50">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={b.photoURL || undefined} />
-                      <AvatarFallback>{b.displayName?.[0]?.toUpperCase() || '?'}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{b.displayName}</p>
-                      <p className="text-xs text-muted-foreground truncate">{b.productName}</p>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px]">ONLINE</Badge>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -912,18 +1134,21 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [verificationRequests, setVerificationRequests] = useState<any[]>([]);
   const { formatPrice } = useCurrency();
 
   const fetchData = async () => {
     try {
-      const [u, p, o] = await Promise.all([
+      const [u, p, o, v] = await Promise.all([
         api.get('/users'),
         api.get('/products'),
-        api.get('/orders')
+        api.get('/orders'),
+        api.get('/business/verify-requests')
       ]);
       setUsers(u);
       setProducts(p);
       setOrders(o);
+      setVerificationRequests(v);
     } catch (error) {
       console.error("Failed to fetch admin data", error);
     }
@@ -932,6 +1157,27 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleApprove = async (userId: string, approved: boolean) => {
+    try {
+      await api.post('/business/approve', { userId, approved, reviewedBy: 'admin' });
+      fetchData();
+      toast.success(approved ? "Business approved" : "Business denied");
+      
+      if (approved) {
+        const user = users.find(u => u.uid === userId);
+        if (user) {
+          await api.post('/notifications/send', {
+            userId,
+            title: "Business Approved!",
+            body: "Congratulations! Your business has been verified. You can now start posting products."
+          });
+        }
+      }
+    } catch (error) {
+      toast.error("Failed to process verification");
+    }
+  };
 
   const stats = [
     { label: 'Total Users', value: users.length, icon: Users, color: 'text-blue-600' },
@@ -968,6 +1214,7 @@ const AdminDashboard = () => {
           <TabsTrigger value="users" className="rounded-full px-8">Users</TabsTrigger>
           <TabsTrigger value="products" className="rounded-full px-8">Products</TabsTrigger>
           <TabsTrigger value="orders" className="rounded-full px-8">Orders</TabsTrigger>
+          <TabsTrigger value="business" className="rounded-full px-8">Business Forms</TabsTrigger>
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
@@ -1072,36 +1319,62 @@ const AdminDashboard = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="orders" className="space-y-4">
+        <TabsContent value="business" className="space-y-4">
           <Card className="border-none bg-paper shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground uppercase tracking-widest text-[10px]">
-                    <th className="p-4 font-medium">Order ID</th>
-                    <th className="p-4 font-medium">Customer</th>
-                    <th className="p-4 font-medium">Total</th>
-                    <th className="p-4 font-medium">Status</th>
-                    <th className="p-4 font-medium text-right">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map(o => (
-                    <tr key={o.id} className="border-b last:border-0">
-                      <td className="p-4 font-mono text-xs">#{o.id.slice(-8).toUpperCase()}</td>
-                      <td className="p-4 text-muted-foreground">{o.customerId.slice(0, 8)}...</td>
-                      <td className="p-4 font-medium">${o.total.toFixed(2)}</td>
-                      <td className="p-4">
-                        <Badge variant="secondary" className="capitalize">{o.status}</Badge>
-                      </td>
-                      <td className="p-4 text-right text-muted-foreground">
-                        {new Date(o.createdAt).toLocaleDateString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CardHeader>
+              <CardTitle className="serif">Business Verification Requests</CardTitle>
+              <CardDescription>Review and approve business verification applications</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {verificationRequests.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">No pending verification requests</p>
+              ) : (
+                <div className="space-y-4">
+                  {verificationRequests.map((v) => {
+                    const userInfo = users.find(u => u.uid === v.userId);
+                    return (
+                      <div key={v.id} className="border rounded-lg p-4 space-y-4">
+                        <div className="flex items-center gap-4">
+                          <Avatar className="h-12 w-12">
+                            <AvatarImage src={userInfo?.photoURL} />
+                            <AvatarFallback>{userInfo?.displayName?.[0] || '?'}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium">{userInfo?.displayName || 'Unknown User'}</p>
+                            <p className="text-sm text-muted-foreground">{userInfo?.email}</p>
+                            <p className="text-xs text-muted-foreground">Business: {userInfo?.businessName || 'N/A'}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted-foreground">Registered Email</p>
+                            <p className="font-medium">{v.registeredEmail || 'Not provided'}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Registered Phone</p>
+                            <p className="font-medium">{v.registeredPhone || 'Not provided'}</p>
+                          </div>
+                        </div>
+                        {v.passportPhoto && (
+                          <div>
+                            <p className="text-muted-foreground text-sm mb-2">Passport Photo</p>
+                            <img src={v.passportPhoto} alt="Passport" className="h-32 w-24 object-cover rounded" />
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <Button className="flex-1" onClick={() => handleApprove(v.userId, true)}>
+                            <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                          </Button>
+                          <Button variant="outline" className="flex-1" onClick={() => handleApprove(v.userId, false)}>
+                            <AlertCircle className="mr-2 h-4 w-4" /> Deny
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
@@ -1114,6 +1387,9 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState<Partial<User>>({});
   const [followedBusinesses, setFollowedBusinesses] = useState<User[]>([]);
+  const [verificationStatus, setVerificationStatus] = useState<'pending' | 'approved' | 'denied' | null>(null);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', passportPhoto: '' });
 
   useEffect(() => {
     if (user) {
@@ -1129,7 +1405,14 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
         socialHandles: user.socialHandles || { instagram: '', facebook: '', twitter: '', tiktok: '' }
       });
 
-      // Fetch followed businesses
+      const fetchVerification = async () => {
+        try {
+          const v = await api.get(`/business/verify/${user.uid}`);
+          if (v) setVerificationStatus(v.status);
+        } catch (e) {}
+      };
+      fetchVerification();
+
       const fetchFollowed = async () => {
         try {
           const follows = await api.get(`/follows/${user.uid}`);
@@ -1161,13 +1444,47 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 500000) { // 0.5MB limit
+      if (file.size > 500000) {
         toast.error("Image too large. Please choose an image under 500KB.");
         return;
       }
       const reader = new FileReader();
       reader.onloadend = () => {
         setProfileData({ ...profileData, photoURL: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleVerifySubmit = async () => {
+    if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.passportPhoto) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    try {
+      await api.post('/business/verify', {
+        id: crypto.randomUUID(),
+        userId: user?.uid,
+        ...verifyData
+      });
+      setVerificationStatus('pending');
+      setShowVerifyModal(false);
+      toast.success("Verification submitted. Please wait for approval.");
+    } catch (error) {
+      toast.error("Failed to submit verification");
+    }
+  };
+
+  const handlePassportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) {
+        toast.error("Image too large. Please choose an image under 500KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setVerifyData({ ...verifyData, passportPhoto: reader.result as string });
       };
       reader.readAsDataURL(file);
     }
@@ -1194,7 +1511,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-12 pb-24">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div className="flex items-center gap-6">
           <Avatar className="h-24 w-24 border-4 border-paper shadow-xl">
             <AvatarImage src={user.photoURL} />
@@ -1206,7 +1523,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
             <Badge variant="secondary" className="mt-2 capitalize">{user.role}</Badge>
           </div>
         </div>
-        <Button variant="outline" className="rounded-full" onClick={() => setIsEditing(true)}>
+        <Button variant="outline" className="rounded-full w-full sm:w-auto" onClick={() => setIsEditing(true)}>
           Edit Profile
         </Button>
       </div>
@@ -1255,8 +1572,26 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
                   {user.businessDescription || 'No description provided yet.'}
                 </p>
               </div>
+              {verificationStatus === 'pending' && (
+                <div className="flex items-center gap-2 text-yellow-600">
+                  <Clock className="h-4 w-4" />
+                  <span className="text-sm">Verification pending approval</span>
+                </div>
+              )}
+              {verificationStatus === 'denied' && (
+                <div className="flex items-center gap-2 text-destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm">Verification denied. Please submit again.</span>
+                </div>
+              )}
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-2">
+              {verificationStatus !== 'approved' && (
+                <Button variant="outline" className="w-full rounded-full" onClick={() => setShowVerifyModal(true)}>
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                  {verificationStatus === 'pending' ? 'Update Verification' : 'Verify Your Business'}
+                </Button>
+              )}
               <Button variant="outline" className="w-full rounded-full" onClick={() => onNavigate(user.role === 'admin' ? 'admin' : 'inventory')}>
                 Go to Dashboard
               </Button>
@@ -1298,7 +1633,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
       </div>
 
       <Dialog open={isEditing} onOpenChange={setIsEditing}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="serif text-2xl">Edit Profile</DialogTitle>
             <DialogDescription>Update your personal and business information.</DialogDescription>
@@ -1467,8 +1802,44 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
   const { user, login, logout } = useAuth();
   const { items, total, itemCount, updateQuantity, removeItem } = useCart();
   const { formatPrice } = useCurrency();
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', passportPhoto: '' });
+
+  const handleVerifySubmit = async () => {
+    if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.passportPhoto) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    try {
+      await api.post('/business/verify', {
+        id: crypto.randomUUID(),
+        userId: user?.uid,
+        ...verifyData
+      });
+      toast.success("Verification submitted. Please wait for approval.");
+      setShowVerifyModal(false);
+    } catch (error) {
+      toast.error("Failed to submit verification");
+    }
+  };
+
+  const handlePassportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) {
+        toast.error("Image too large. Please choose an image under 500KB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setVerifyData({ ...verifyData, passportPhoto: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   return (
+    <>
     <nav className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-md">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center gap-4">
@@ -1500,15 +1871,15 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
           </div>
 
           <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
+            <SheetTrigger>
+              <button className="relative p-2 hover:bg-secondary rounded-full">
                 <ShoppingBag className="h-5 w-5" />
                 {itemCount > 0 && (
                   <Badge className="absolute -right-1 -top-1 h-5 w-5 justify-center rounded-full p-0 text-[10px]">
                     {itemCount}
                   </Badge>
                 )}
-              </Button>
+              </button>
             </SheetTrigger>
             <SheetContent className="w-full sm:max-w-md flex flex-col">
               <SheetHeader>
@@ -1610,6 +1981,53 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
         </div>
       </div>
     </nav>
+
+    <Dialog open={showVerifyModal} onOpenChange={setShowVerifyModal}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="serif text-2xl">Verify Your Business</DialogTitle>
+          <DialogDescription>Submit your business credentials for verification</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Registered Business Email</Label>
+            <Input 
+              placeholder="business@example.com"
+              value={verifyData.registeredEmail}
+              onChange={e => setVerifyData({ ...verifyData, registeredEmail: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Registered Phone Number</Label>
+            <Input 
+              placeholder="+256 7xx xxx xxx"
+              value={verifyData.registeredPhone}
+              onChange={e => setVerifyData({ ...verifyData, registeredPhone: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Business Owner Passport Photo</Label>
+            <Input 
+              type="file"
+              accept="image/*"
+              className="hidden"
+              id="passport-upload"
+              onChange={handlePassportChange}
+            />
+            <div className="flex gap-2 items-center">
+              <Button variant="outline" size="sm" className="rounded-full" onClick={() => document.getElementById('passport-upload')?.click()}>
+                <Camera className="mr-2 h-4 w-4" /> Upload Photo
+              </Button>
+              {verifyData.passportPhoto && (
+                <img src={verifyData.passportPhoto} alt="Passport" className="h-10 w-10 object-cover rounded" />
+              )}
+            </div>
+          </div>
+        </div>
+        <Button className="w-full" onClick={handleVerifySubmit}>Submit for Verification</Button>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 };
 
@@ -1768,6 +2186,16 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
         createdAt: new Date().toISOString()
       };
       await api.post('/reviews', review);
+      
+      const newReviewCount = (product.reviewCount || 0) + 1;
+      const newRatingAvg = ((product.ratingAvg || 0) * product.reviewCount + newReview.rating) / newReviewCount;
+      
+      await api.post('/products', {
+        ...product,
+        reviewCount: newReviewCount,
+        ratingAvg: parseFloat(newRatingAvg.toFixed(1))
+      });
+      
       setReviews([review, ...reviews]);
       setNewReview({ rating: 5, comment: '' });
       toast.success("Review submitted!");
@@ -1940,6 +2368,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [isAdding, setIsAdding] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [businessData, setBusinessData] = useState({ name: '', description: '' });
+  const [isVerified, setIsVerified] = useState(true);
   const { formatPrice } = useCurrency();
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     name: '',
@@ -1960,12 +2389,14 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const fetchData = async () => {
     if (user.role === 'customer') return;
     try {
-      const [p, o] = await Promise.all([
+      const [p, o, v] = await Promise.all([
         api.get('/products'),
-        api.get('/orders')
+        api.get('/orders'),
+        user.uid ? api.get(`/business/verify/${user.uid}`) : Promise.resolve(null)
       ]);
       setProducts(p.filter((prod: Product) => prod.sellerId === user.uid));
       setOrders(o.filter((order: Order) => order.sellerIds.includes(user.uid)));
+      setIsVerified(!v || v.status === 'approved');
     } catch (error) {
       console.error("Failed to fetch seller data", error);
     }
@@ -2196,9 +2627,15 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
         <div>
           <h2 className="text-4xl serif">{user.businessName || 'Business Dashboard'}</h2>
           <p className="text-muted-foreground">{user.businessDescription || 'Manage your boutique and track performance.'}</p>
+          {!isVerified && (
+            <p className="text-yellow-600 text-sm mt-2 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              Business not verified. Please verify to post products.
+            </p>
+          )}
         </div>
         <Dialog open={isAdding} onOpenChange={setIsAdding}>
-          <DialogTrigger render={<Button className="rounded-full" />}>
+          <DialogTrigger render={<Button className="rounded-full" disabled={!isVerified} />}>
             <Plus className="mr-2 h-4 w-4" /> Add Product
           </DialogTrigger>
           <DialogContent className="max-w-2xl">

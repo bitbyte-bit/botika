@@ -61,8 +61,29 @@ export interface Message {
   receiverId: string;
   content: string;
   createdAt: string;
-  type: 'system' | 'user' | 'seller';
+  type: 'system' | 'user' | 'seller' | 'text' | 'image' | 'file';
   read: boolean;
+  attachment?: string;
+  replyTo?: string;
+  isEncrypted?: boolean;
+  receipts?: MessageReceipt[];
+}
+
+export interface MessageReceipt {
+  id: string;
+  messageId: string;
+  userId: string;
+  readAt: string;
+  deliveredAt: string;
+}
+
+export interface MessageAttachment {
+  id: string;
+  messageId: string;
+  fileName: string;
+  fileType: string;
+  fileUrl: string;
+  createdAt: string;
 }
 
 export interface Follow {

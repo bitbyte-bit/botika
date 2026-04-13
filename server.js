@@ -8,8 +8,8 @@ import cors from "cors";
 import webpush from "web-push";
 
 const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
-const GOOGLE_CLIENT_ID = " ";
-const GOOGLE_CLIENT_SECRET = " ";
+const GOOGLE_CLIENT_ID = "404097461636-aonin006mvkteduki0q2og8via6ia5e8.apps.googleusercontent.com";
+const GOOGLE_CLIENT_SECRET = "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 ";
 
 webpush.setVapidDetails(
   "https://botika-4y78.onrender.com",
@@ -114,6 +114,42 @@ db.exec(`
     token TEXT,
     createdAt TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS user_status (
+    userId TEXT PRIMARY KEY,
+    isOnline INTEGER DEFAULT 0,
+    lastSeen TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS message_receipts (
+    id TEXT PRIMARY KEY,
+    messageId TEXT,
+    userId TEXT,
+    readAt TEXT,
+    deliveredAt TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS message_attachments (
+    id TEXT PRIMARY KEY,
+    messageId TEXT,
+    fileName TEXT,
+    fileType TEXT,
+    fileUrl TEXT,
+    createdAt TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS business_verification (
+    id TEXT PRIMARY KEY,
+    userId TEXT,
+    registeredEmail TEXT,
+    registeredPhone TEXT,
+    passportPhoto TEXT,
+    businessDocuments TEXT,
+    status TEXT DEFAULT 'pending',
+    submittedAt TEXT,
+    reviewedAt TEXT,
+    reviewedBy TEXT
+  );
 `);
 
 const masterAdminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba26@gmail.com');
@@ -194,6 +230,48 @@ async function startServer() {
     res.json(users);
   });
 
+  app.post("/api/business/verify", (req, res) => {
+    const { id, userId, registeredEmail, registeredPhone, passportPhoto, businessDocuments } = req.body;
+    const existing = db.prepare("SELECT * FROM business_verification WHERE userId = ?").get(userId);
+    if (existing) {
+      db.prepare(`
+        UPDATE business_verification SET registeredEmail = ?, registeredPhone = ?, passportPhoto = ?, businessDocuments = ?, status = 'pending', submittedAt = ?
+        WHERE userId = ?
+      `).run(registeredEmail, registeredPhone, passportPhoto, businessDocuments, new Date().toISOString(), userId);
+    } else {
+      const stmt = db.prepare(`
+        INSERT INTO business_verification (id, userId, registeredEmail, registeredPhone, passportPhoto, businessDocuments, status, submittedAt)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+      `);
+      stmt.run(id, userId, registeredEmail, registeredPhone, passportPhoto, businessDocuments, new Date().toISOString());
+    }
+    res.json({ success: true });
+  });
+
+  app.get("/api/business/verify/:userId", (req, res) => {
+    const verification = db.prepare("SELECT * FROM business_verification WHERE userId = ?").get(req.params.userId);
+    res.json(verification || null);
+  });
+
+  app.get("/api/business/verify-requests", (req, res) => {
+    const requests = db.prepare("SELECT * FROM business_verification WHERE status = 'pending' ORDER BY submittedAt DESC").all();
+    res.json(requests);
+  });
+
+  app.post("/api/business/approve", (req, res) => {
+    const { userId, approved, reviewedBy } = req.body;
+    db.prepare(`
+      UPDATE business_verification SET status = ?, reviewedAt = ?, reviewedBy = ?
+      WHERE userId = ?
+    `).run(approved ? 'approved' : 'denied', new Date().toISOString(), reviewedBy, userId);
+    
+    if (approved) {
+      db.prepare("UPDATE users SET role = 'seller' WHERE uid = ?").run(userId);
+    }
+    
+    res.json({ success: true });
+  });
+
   app.get("/api/products", (req, res) => {
     const products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
     res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
@@ -251,6 +329,70 @@ async function startServer() {
   app.patch("/api/messages/:id/read", (req, res) => {
     db.prepare("UPDATE messages SET read = 1 WHERE id = ?").run(req.params.id);
     res.json({ success: true });
+  });
+
+  app.delete("/api/messages/:id", (req, res) => {
+    db.prepare("DELETE FROM messages WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/messages/conversation/:userId1/:userId2", (req, res) => {
+    const { userId1, userId2 } = req.params;
+    const messages = db.prepare(`
+      SELECT * FROM messages 
+      WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
+      ORDER BY createdAt ASC
+    `).all(userId1, userId2, userId2, userId1);
+    res.json(messages.map((m) => ({ ...m, read: !!m.read })));
+  });
+
+  app.post("/api/messages/attachments", (req, res) => {
+    const { id, messageId, fileName, fileType, fileUrl, createdAt } = req.body;
+    const stmt = db.prepare(`
+      INSERT INTO message_attachments (id, messageId, fileName, fileType, fileUrl, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(id, messageId, fileName, fileType, fileUrl, createdAt);
+    res.json({ success: true });
+  });
+
+  app.get("/api/messages/:messageId/attachments", (req, res) => {
+    const attachments = db.prepare("SELECT * FROM message_attachments WHERE messageId = ?").all(req.params.messageId);
+    res.json(attachments);
+  });
+
+  app.post("/api/messages/receipts", (req, res) => {
+    const { id, messageId, userId, readAt, deliveredAt } = req.body;
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO message_receipts (id, messageId, userId, readAt, deliveredAt)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(id, messageId, userId, readAt, deliveredAt);
+    res.json({ success: true });
+  });
+
+  app.get("/api/messages/:messageId/receipts", (req, res) => {
+    const receipts = db.prepare("SELECT * FROM message_receipts WHERE messageId = ?").all(req.params.messageId);
+    res.json(receipts);
+  });
+
+  app.post("/api/users/status", (req, res) => {
+    const { userId, isOnline } = req.body;
+    db.prepare(`
+      INSERT OR REPLACE INTO user_status (userId, isOnline, lastSeen)
+      VALUES (?, ?, ?)
+    `).run(userId, isOnline ? 1 : 0, new Date().toISOString());
+    res.json({ success: true });
+  });
+
+  app.get("/api/users/status/:userId", (req, res) => {
+    const status = db.prepare("SELECT * FROM user_status WHERE userId = ?").get(req.params.userId);
+    res.json(status || { isOnline: false, lastSeen: null });
+  });
+
+  app.get("/api/users/online", (req, res) => {
+    const onlineUsers = db.prepare("SELECT userId FROM user_status WHERE isOnline = 1").all();
+    res.json(onlineUsers.map(u => u.userId));
   });
 
   app.get("/api/follows/:userId", (req, res) => {
