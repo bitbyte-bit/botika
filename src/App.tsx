@@ -2627,6 +2627,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [businessData, setBusinessData] = useState({ name: '', description: '' });
   const [isVerified, setIsVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', passportPhoto: '' });
   const { formatPrice } = useCurrency();
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     name: '',
@@ -2683,7 +2684,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       setUser(updatedUser as User);
       toast.success("Business registered! Please verify your business to start posting products.");
       setIsRegistering(false);
-      setIsAdding(true);
+      setShowVerifyModal(true);
     } catch (error) {
       toast.error("Failed to register business");
     }
@@ -2899,10 +2900,14 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
           )}
         </div>
         <div className="flex gap-2">
-          {!isVerified && (
+          {!isVerified ? (
             <Button variant="outline" className="rounded-full" onClick={() => setShowVerifyModal(true)}>
               <ShieldCheck className="mr-2 h-4 w-4" /> Verify Business
             </Button>
+          ) : (
+            <span className="text-green-600 flex items-center gap-2 text-sm font-medium">
+              <CheckCircle2 className="h-4 w-4" /> Your business is verified
+            </span>
           )}
           <Button className="rounded-full" disabled={!isVerified} onClick={() => setIsAdding(true)}>
             <Plus className="mr-2 h-4 w-4" /> Add Product
@@ -3071,6 +3076,82 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
 </div>
         </div>
       </div>
+
+      <Dialog open={showVerifyModal} onOpenChange={setShowVerifyModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="serif text-2xl">Verify Your Business</DialogTitle>
+            <DialogDescription>Submit your business credentials for verification</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Registered Business Email</Label>
+              <Input 
+                placeholder="business@example.com"
+                value={verifyData.registeredEmail}
+                onChange={e => setVerifyData({ ...verifyData, registeredEmail: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Registered Phone Number</Label>
+              <Input 
+                placeholder="+256 7xx xxx xxx"
+                value={verifyData.registeredPhone}
+                onChange={e => setVerifyData({ ...verifyData, registeredPhone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Business Owner Passport Photo</Label>
+              <Input 
+                type="file"
+                accept="image/*"
+                className="hidden"
+                id="seller-passport-upload"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 500000) {
+                      toast.error("Image too large. Please choose an image under 500KB.");
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setVerifyData({ ...verifyData, passportPhoto: reader.result as string });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+              <div className="flex gap-2 items-center">
+                <Button variant="outline" size="sm" className="rounded-full" onClick={() => document.getElementById('seller-passport-upload')?.click()}>
+                  <Camera className="mr-2 h-4 w-4" /> Upload Photo
+                </Button>
+                {verifyData.passportPhoto && (
+                  <img src={verifyData.passportPhoto} alt="Passport" className="h-10 w-10 object-cover rounded" />
+                )}
+              </div>
+            </div>
+          </div>
+          <Button className="w-full" onClick={async () => {
+            if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.passportPhoto) {
+              toast.error("Please fill in all fields");
+              return;
+            }
+            try {
+              await api.post('/business/verify', {
+                id: crypto.randomUUID(),
+                userId: user.uid,
+                ...verifyData
+              });
+              toast.success("Verification submitted. Please wait for admin approval.");
+              setShowVerifyModal(false);
+              fetchData();
+            } catch (error) {
+              toast.error("Failed to submit verification");
+            }
+          }}>Submit for Verification</Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
