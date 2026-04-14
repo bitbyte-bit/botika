@@ -498,6 +498,7 @@ async function startServer() {
     
     if (approved) {
       db.prepare("UPDATE users SET role = 'seller' WHERE uid = ?").run(userId);
+      db.prepare("UPDATE products SET isApproved = 1 WHERE sellerId = ?").run(userId);
     }
     
     res.json({ success: true });
@@ -505,6 +506,11 @@ async function startServer() {
 
   app.get("/api/products", (req, res) => {
     const products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
+    res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
+  });
+
+  app.get("/api/products/pending", (req, res) => {
+    const products = db.prepare("SELECT * FROM products WHERE isApproved = 0 ORDER BY createdAt DESC").all();
     res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
   });
 
@@ -533,6 +539,12 @@ async function startServer() {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount);
+    res.json({ success: true });
+  });
+
+  app.patch("/api/products/:id/approve", (req, res) => {
+    const { approved } = req.body;
+    db.prepare("UPDATE products SET isApproved = ? WHERE id = ?").run(approved ? 1 : 0, req.params.id);
     res.json({ success: true });
   });
 

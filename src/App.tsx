@@ -1244,21 +1244,6 @@ useEffect(() => {
     fetchData();
   }, []);
 
-  const [pendingProducts, setPendingProducts] = useState<Product[]>([]);
-
-  const fetchPendingProducts = async () => {
-    try {
-      const data = await api.get('/products/pending');
-      setPendingProducts(data);
-    } catch (error) {
-      console.error('Failed to fetch pending products', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchPendingProducts();
-  }, []);
-
   const handleApprove = async (userId: string, approved: boolean) => {
     try {
       await api.post('/business/approve', { userId, approved, reviewedBy: 'admin' });
@@ -1278,17 +1263,7 @@ useEffect(() => {
     } catch (error) {
       toast.error('Failed to process verification');
     }
-  };
-
-  const handleApproveProduct = async (productId: string, approved: boolean) => {
-    try {
-      await api.patch(`/products/${productId}/approve`, { approved });
-      fetchPendingProducts();
-      toast.success(approved ? 'Product approved' : 'Product rejected');
-    } catch (error) {
-      toast.error('Failed to process product');
-    }
-  };
+};
 
   const stats = [
     { label: 'Total Users', value: users.length, icon: Users, color: 'text-blue-600' },
@@ -2766,6 +2741,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
 
   const handleAddProduct = async () => {
     if (!isVerified) {
+      setIsAdding(false);
+      setShowVerifyModal(true);
       toast.error('Please verify your business to post products');
       return;
     }
@@ -3621,7 +3598,7 @@ const AppContent = () => {
   }, [user]);
 
   const filteredProducts = products.filter(p => 
-    p.isApproved !== 0 && (
+    (p.isApproved === 1) && (
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.sellerName && p.sellerName.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -3653,7 +3630,8 @@ const AppContent = () => {
         sellerName,
         createdAt: new Date().toISOString(),
         visitCount: 0,
-        likeCount: 0
+        likeCount: 0,
+        isApproved: 0
       },
       {
         id: crypto.randomUUID(),
@@ -3671,7 +3649,8 @@ const AppContent = () => {
         sellerName,
         createdAt: new Date().toISOString(),
         visitCount: 0,
-        likeCount: 0
+        likeCount: 0,
+        isApproved: 0
       },
       {
         id: crypto.randomUUID(),
@@ -3689,7 +3668,8 @@ const AppContent = () => {
         sellerName,
         createdAt: new Date().toISOString(),
         visitCount: 0,
-        likeCount: 0
+        likeCount: 0,
+        isApproved: 0
       }
     ];
     for (const s of samples) {
