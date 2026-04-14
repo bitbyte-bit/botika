@@ -203,6 +203,22 @@ const stmt = db.prepare(`
 
   app.post("/api/auth/signup", (req, res) => {
     const { email, password, displayName } = req.body;
+    
+    if (!email || !password || !displayName) {
+      return res.status(400).json({ error: 'Email, password, and display name are required' });
+    }
+    
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+    
+    if (!/[A-Z]/.test(password)) {
+      return res.status(400).json({ error: 'Password must contain at least one uppercase letter' });
+    }
+    
+    if (!/[0-9]/.test(password)) {
+      return res.status(400).json({ error: 'Password must contain at least one number' });
+    }
     const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
     if (existing) {
       return res.status(400).json({ error: "Email already exists" });

@@ -184,6 +184,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [items, setItems] = useState<CartItem[]>([]);
 
   const addItem = (product: Product) => {
+    const user = JSON.parse(localStorage.getItem('bikuumba_user') || 'null');
+    if (!user) {
+      toast.error('Please sign in to add items to cart');
+      return;
+    }
     setItems(prev => {
       const existing = prev.find(i => i.productId === product.id);
       if (existing) {
@@ -326,20 +331,30 @@ const LoginModal = () => {
           <div className="space-y-2">
             <Label>Password</Label>
             <Input 
-              type="password" 
-              placeholder="••••••••" 
+              type='password' 
+              placeholder='••••••••' 
               value={password} 
               onChange={e => setPassword(e.target.value)} 
               required 
             />
+            {isSignUp && (
+              <div className='flex items-center justify-center p-4 bg-secondary/30 rounded-lg'>
+                <p className='text-sm text-muted-foreground text-center'>
+                  reCAPTCHA verification will be performed on submission
+                </p>
+              </div>
+            )}
+            {isSignUp && !password && (
+              <div className='text-xs text-muted-foreground space-y-1'>
+                <p>Password must have:</p>
+                <ul className='list-disc list-inside space-y-0.5 ml-2'>
+                  <li className={password.length >= 8 ? 'text-green-600' : ''}>At least 8 characters</li>
+                  <li className={/[A-Z]/.test(password) ? 'text-green-600' : ''}>One uppercase letter</li>
+                  <li className={/[0-9]/.test(password) ? 'text-green-600' : ''}>One number</li>
+                </ul>
+              </div>
+)}
           </div>
-          {isSignUp && (
-            <div className="flex items-center justify-center p-4 bg-secondary/30 rounded-lg">
-              <p className="text-sm text-muted-foreground text-center">
-                reCAPTCHA verification will be performed on submission
-              </p>
-            </div>
-          )}
           <Button type="submit" className="w-full h-12 text-lg rounded-full" disabled={loading}>
             {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
           </Button>
@@ -816,8 +831,7 @@ const handleSearch = useCallback(async () => {
                   return (
                     <div 
                       key={u.uid} 
-                      className='flex items-center gap-3 p-3 rounded-lg bg-secondary/50 cursor-pointer hover:bg-secondary'
-                      onClick={() => { setSearchOpen(false); openChat(u); }}
+                      className='flex items-center gap-3 p-3 rounded-lg bg-secondary/50'
                     >
                       <div className='relative'>
                         <Avatar className='h-10 w-10'>
@@ -833,6 +847,9 @@ const handleSearch = useCallback(async () => {
                         <p className='text-xs text-muted-foreground truncate'>{u.email}</p>
                       </div>
                       {isOnline && <Badge className='bg-green-500 text-white text-[10px]'>Online</Badge>}
+                      <Button size='sm' variant='outline' className='rounded-full' onClick={() => { setSearchOpen(false); openChat(u); }}>
+                        <MessageSquare className='h-4 w-4' />
+                      </Button>
                     </div>
                   );
                 })}
@@ -983,9 +1000,9 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
     }
   };
 
-  const handleChat = async () => {
-    if (!user) return toast.error("Please sign in to chat");
-    toast.info("Chat feature coming soon! You can now follow this boutique.");
+const handleChat = async () => {
+    if (!user) return toast.error('Please sign in to chat');
+    toast.success('You can now chat from the Inbox section');
   };
 
   if (!seller) return null;
@@ -2205,12 +2222,13 @@ const ProductDetail = ({ product, onClose, onAddToCart, onChat }: { product: Pro
     fetchReviews();
   }, [product.id]);
 
-  const handleLike = async () => {
+const handleLike = async () => {
+    if (!user) return toast.error('Please sign in to like products');
     try {
       await api.post('/products', { ...product, likeCount: (product.likeCount || 0) + 1 });
-      toast.success("Added to your wishlist!");
+      toast.success('Added to your wishlist!');
     } catch (error) {
-      console.error("Failed to like product", error);
+      console.error('Failed to like product', error);
     }
   };
 
