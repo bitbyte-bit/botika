@@ -8,8 +8,8 @@ import cors from "cors";
 import webpush from "web-push";
 
 const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
-const GOOGLE_CLIENT_ID = "847389374219-ukfm55dmakc3aiarg18723gor5mvj9sf.apps.googleusercontent.com";
-const GOOGLE_CLIENT_SECRET = "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";
+const GOOGLE_CLIENT_ID = "";
+const GOOGLE_CLIENT_SECRET = "";
 
 webpush.setVapidDetails(
   "https://botika-4y78.onrender.com",
@@ -208,18 +208,22 @@ const stmt = db.prepare(`
       return res.status(400).json({ error: 'Email, password, and display name are required' });
     }
     
-    if (password.length < 8) {
+if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
     }
-    
     if (!/[A-Z]/.test(password)) {
       return res.status(400).json({ error: 'Password must contain at least one uppercase letter' });
     }
-    
+    if (!/[a-z]/.test(password)) {
+      return res.status(400).json({ error: 'Password must contain at least one lowercase letter' });
+    }
     if (!/[0-9]/.test(password)) {
       return res.status(400).json({ error: 'Password must contain at least one number' });
     }
-    const existing = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      return res.status(400).json({ error: 'Password must contain at least one symbol' });
+    }
+    const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     if (existing) {
       return res.status(400).json({ error: "Email already exists" });
     }

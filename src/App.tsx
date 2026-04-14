@@ -272,7 +272,7 @@ const LoginModal = () => {
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
@@ -286,9 +286,11 @@ const LoginModal = () => {
         setUser(user);
       }
       setIsLoginModalOpen(false);
-      toast.success(isSignUp ? "Account created!" : "Welcome back!");
+      toast.success(isSignUp ? 'Account created!' : 'Welcome back!');
     } catch (error: any) {
-      toast.error(error.response?.data?.error || "Authentication failed");
+      const message = error.message || error.response?.data?.error || 'Authentication failed';
+      const match = message.match(/API error: \d+ - (.+)/);
+      toast.error(match ? match[1] : message);
     } finally {
       setLoading(false);
     }
@@ -344,16 +346,18 @@ const LoginModal = () => {
                 </p>
               </div>
             )}
-            {isSignUp && !password && (
+{isSignUp && (
               <div className='text-xs text-muted-foreground space-y-1'>
                 <p>Password must have:</p>
                 <ul className='list-disc list-inside space-y-0.5 ml-2'>
                   <li className={password.length >= 8 ? 'text-green-600' : ''}>At least 8 characters</li>
                   <li className={/[A-Z]/.test(password) ? 'text-green-600' : ''}>One uppercase letter</li>
+                  <li className={/[a-z]/.test(password) ? 'text-green-600' : ''}>One lowercase letter</li>
                   <li className={/[0-9]/.test(password) ? 'text-green-600' : ''}>One number</li>
+                  <li className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? 'text-green-600' : ''}>One symbol</li>
                 </ul>
               </div>
-)}
+            )}
           </div>
           <Button type="submit" className="w-full h-12 text-lg rounded-full" disabled={loading}>
             {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
