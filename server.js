@@ -35,6 +35,7 @@ db.exec(`
     displayName TEXT,
     photoURL TEXT,
     role TEXT,
+    status TEXT DEFAULT 'active',
     businessName TEXT,
     businessDescription TEXT,
     password TEXT,
@@ -44,6 +45,14 @@ db.exec(`
     phoneMTN TEXT,
     coverPhoto TEXT,
     socialHandles TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS user_warnings (
+    id TEXT PRIMARY KEY,
+    userId TEXT,
+    reason TEXT,
+    createdAt TEXT,
+    createdBy TEXT
   );
 
   CREATE TABLE IF NOT EXISTS products (
@@ -221,38 +230,56 @@ async function startServer() {
     if (existing) {
       return res.status(400).json({ error: "Email already exists" });
     }
-    const uid = Math.random().toString(36).substring(2, 15);
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = {
-      uid,
-      email,
-      displayName,
-      photoURL: "",
-      role: email === 'bikuumba26@gmail.com' ? 'master' : (email === 'bitbyte790@gmail.com' ? 'admin' : 'customer'),
-      createdAt: new Date().toISOString(),
-      password: hashedPassword
-    };
-    const stmt = db.prepare(`
-      INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.createdAt, newUser.password, null, null, null, null, null);
-    const { password: _, ...userWithoutPassword } = newUser;
-    res.json(userWithoutPassword);
+    try {
+      const uid = Math.random().toString(36).substring(2, 15);
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const newUser = {
+        uid,
+        email,
+        displayName,
+        photoURL: "",
+        role: email === 'bikuumba26@gmail.com' ? 'master' : (email === 'bitbyte790@gmail.com' ? 'admin' : 'customer'),
+        createdAt: new Date().toISOString(),
+        password: hashedPassword
+      };
+      const stmt = db.prepare(`
+        INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.createdAt, newUser.password, null, null, null, null, null);
+      const { password: _, ...userWithoutPassword } = newUser;
+      res.json(userWithoutPassword);
+    } catch (err) {
+      console.error('Signup error:', err);
+      res.status(500).json({ error: 'Server error during signup' });
+    }
   });
 
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    if (!user) {
-      return res.status(401).json({ error: "Invalid email or password" });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
     }
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(401).json({ error: "Invalid email or password" });
+    try {
+      const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+      let validPassword = false;
+      if (user.password && user.password.startsWith('$2')) {
+        validPassword = await bcrypt.compare(password, user.password);
+      } else {
+        validPassword = password === user.password;
+      }
+      if (!validPassword) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+      const { password: _, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (err) {
+      console.error('Login error:', err);
+      res.status(500).json({ error: 'Server error during login' });
     }
-    const { password: _, ...userWithoutPassword } = user;
-    res.json(userWithoutPassword);
   });
 
   app.get("/api/users/:uid", (req, res) => {
@@ -261,18 +288,170 @@ async function startServer() {
   });
 
   app.post("/api/users", (req, res) => {
-    const { uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles } = req.body;
+    const { uid, email, displayName, photoURL, role, status, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles } = req.body;
+    if (!uid || !email) {
+      return res.status(400).json({ error: 'UID and email are required' });
+    }
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, status, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(uid, email, displayName, photoURL, role, businessName, businessDescription, password || null, createdAt, location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
-    res.json({ success: true });
+    try {
+      stmt.run(uid, email, displayName || null, photoURL || null, role || 'customer', status || 'active', businessName || null, businessDescription || null, password || null, createdAt || new Date().toISOString(), location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('User insert error:', err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.get("/api/users", (req, res) => {
     const users = db.prepare("SELECT * FROM users").all();
     res.json(users);
+  });
+
+  app.get("/api/users/:uid/warnings", (req, res) => {
+    const warnings = db.prepare("SELECT * FROM user_warnings WHERE userId = ? ORDER BY createdAt DESC").all(req.params.uid);
+    res.json(warnings);
+  });
+
+  app.post("/api/users/:uid/suspend", (req, res) => {
+    const targetUserId = req.params.uid;
+    const adminUserId = req.body.adminUserId;
+    
+    if (!adminUserId) {
+      return res.status(401).json({ error: 'Unauthorized: adminUserId required' });
+    }
+    
+    const adminUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(adminUserId);
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'master')) {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+    
+    const targetUser = db.prepare("SELECT role, status FROM users WHERE uid = ?").get(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (targetUser.role === 'admin' || targetUser.role === 'master') {
+      return res.status(400).json({ error: 'Cannot suspend admin users' });
+    }
+    
+    db.prepare("UPDATE users SET status = 'suspended' WHERE uid = ?").run(targetUserId);
+    res.json({ success: true, message: 'User suspended' });
+  });
+
+  app.post("/api/users/:uid/activate", (req, res) => {
+    const targetUserId = req.params.uid;
+    const adminUserId = req.body.adminUserId;
+    
+    if (!adminUserId) {
+      return res.status(401).json({ error: 'Unauthorized: adminUserId required' });
+    }
+    
+    const adminUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(adminUserId);
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'master')) {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+    
+    const targetUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    db.prepare("UPDATE users SET status = 'active' WHERE uid = ?").run(targetUserId);
+    res.json({ success: true, message: 'User activated' });
+  });
+
+  app.post("/api/users/:uid/ban", (req, res) => {
+    const targetUserId = req.params.uid;
+    const adminUserId = req.body.adminUserId;
+    
+    if (!adminUserId) {
+      return res.status(401).json({ error: 'Unauthorized: adminUserId required' });
+    }
+    
+    const adminUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(adminUserId);
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'master')) {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+    
+    const targetUser = db.prepare("SELECT role, status FROM users WHERE uid = ?").get(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (targetUser.role === 'admin' || targetUser.role === 'master') {
+      return res.status(400).json({ error: 'Cannot ban admin users' });
+    }
+    
+    db.prepare("UPDATE users SET status = 'banned' WHERE uid = ?").run(targetUserId);
+    res.json({ success: true, message: 'User banned' });
+  });
+
+  app.post("/api/users/:uid/warn", (req, res) => {
+    const targetUserId = req.params.uid;
+    const { reason, adminUserId } = req.body;
+    
+    if (!adminUserId) {
+      return res.status(401).json({ error: 'Unauthorized: adminUserId required' });
+    }
+    
+    if (!reason) {
+      return res.status(400).json({ error: 'Warning reason is required' });
+    }
+    
+    const adminUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(adminUserId);
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'master')) {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+    
+    const targetUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (targetUser.role === 'admin' || targetUser.role === 'master') {
+      return res.status(400).json({ error: 'Cannot warn admin users' });
+    }
+    
+    const warningId = crypto.randomUUID();
+    const stmt = db.prepare(`
+      INSERT INTO user_warnings (id, userId, reason, createdAt, createdBy)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(warningId, targetUserId, reason, new Date().toISOString(), adminUserId);
+    res.json({ success: true, message: 'Warning issued' });
+  });
+
+  app.delete("/api/users/:uid", (req, res) => {
+    const targetUserId = req.params.uid;
+    const adminUserId = req.query.adminUserId;
+    
+    if (!adminUserId) {
+      return res.status(401).json({ error: 'Unauthorized: adminUserId required' });
+    }
+    
+    const adminUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(adminUserId);
+    if (!adminUser || (adminUser.role !== 'admin' && adminUser.role !== 'master')) {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+    
+    const targetUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    if (targetUser.role === 'admin' || targetUser.role === 'master') {
+      return res.status(400).json({ error: 'Cannot delete admin users' });
+    }
+    
+    db.prepare("DELETE FROM messages WHERE senderId = ? OR receiverId = ?").run(targetUserId, targetUserId);
+    db.prepare("DELETE FROM products WHERE sellerId = ?").run(targetUserId);
+    db.prepare("DELETE FROM orders WHERE customerId = ?").run(targetUserId);
+    db.prepare("DELETE FROM user_warnings WHERE userId = ?").run(targetUserId);
+    db.prepare("DELETE FROM user_status WHERE userId = ?").run(targetUserId);
+    db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(targetUserId);
+    db.prepare("DELETE FROM notifications WHERE userId = ?").run(targetUserId);
+    db.prepare("DELETE FROM follows WHERE followerId = ? OR followingId = ?").run(targetUserId, targetUserId);
+    db.prepare("DELETE FROM users WHERE uid = ?").run(targetUserId);
+    res.json({ success: true, message: 'User deleted' });
   });
 
   app.post("/api/business/verify", (req, res) => {
@@ -381,12 +560,48 @@ async function startServer() {
   });
 
   app.get("/api/messages/:userId", (req, res) => {
+    const requestingUserId = req.query.currentUserId;
+    const targetUserId = req.params.userId;
+    
+    if (!requestingUserId) {
+      return res.status(401).json({ error: 'Unauthorized: currentUserId required' });
+    }
+    
+    if (requestingUserId !== targetUserId) {
+      const requestingUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(requestingUserId);
+      if (!requestingUser || (requestingUser.role !== 'admin' && requestingUser.role !== 'master')) {
+        return res.status(403).json({ error: 'Forbidden: You can only view your own messages' });
+      }
+    }
+    
     const messages = db.prepare("SELECT * FROM messages WHERE receiverId = ? OR senderId = ? ORDER BY createdAt DESC").all(req.params.userId, req.params.userId);
     res.json(messages.map((m) => ({ ...m, read: !!m.read })));
   });
 
   app.post("/api/messages", (req, res) => {
-    const { id, senderId, senderName, receiverId, content, createdAt, type, read } = req.body;
+    const { id, senderId, senderName, receiverId, content, createdAt, type, read, currentUserId } = req.body;
+    
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Unauthorized: currentUserId required' });
+    }
+    
+    if (currentUserId !== senderId) {
+      return res.status(403).json({ error: 'Forbidden: You can only send messages as yourself' });
+    }
+    
+    const senderUser = db.prepare("SELECT status FROM users WHERE uid = ?").get(senderId);
+    if (senderUser && senderUser.status === 'banned') {
+      return res.status(403).json({ error: 'Your account has been banned' });
+    }
+    if (senderUser && senderUser.status === 'suspended') {
+      return res.status(403).json({ error: 'Your account is suspended' });
+    }
+    
+    const receiverUser = db.prepare("SELECT status FROM users WHERE uid = ?").get(receiverId);
+    if (receiverUser && receiverUser.status === 'banned') {
+      return res.status(400).json({ error: 'Cannot send message to banned user' });
+    }
+    
     const stmt = db.prepare(`
       INSERT INTO messages (id, senderId, senderName, receiverId, content, createdAt, type, read)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -396,17 +611,65 @@ async function startServer() {
   });
 
   app.patch("/api/messages/:id/read", (req, res) => {
-    db.prepare("UPDATE messages SET read = 1 WHERE id = ?").run(req.params.id);
+    const currentUserId = req.body.currentUserId;
+    const messageId = req.params.id;
+    
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Unauthorized: currentUserId required' });
+    }
+    
+    const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId);
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    
+    if (message.receiverId !== currentUserId && message.senderId !== currentUserId) {
+      const currentUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(currentUserId);
+      if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'master')) {
+        return res.status(403).json({ error: 'Forbidden: You can only update your own messages' });
+      }
+    }
+    
+    db.prepare("UPDATE messages SET read = 1 WHERE id = ?").run(messageId);
     res.json({ success: true });
   });
 
   app.delete("/api/messages/:id", (req, res) => {
-    db.prepare("DELETE FROM messages WHERE id = ?").run(req.params.id);
+    const currentUserId = req.query.currentUserId;
+    const messageId = req.params.id;
+    
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'Unauthorized: currentUserId required' });
+    }
+    
+    const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId);
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    
+    if (message.senderId !== currentUserId && message.receiverId !== currentUserId) {
+      const currentUser = db.prepare("SELECT role FROM users WHERE uid = ?").get(currentUserId);
+      if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'master')) {
+        return res.status(403).json({ error: 'Forbidden: You can only delete your own messages' });
+      }
+    }
+    
+    db.prepare("DELETE FROM messages WHERE id = ?").run(messageId);
     res.json({ success: true });
   });
 
   app.get("/api/messages/conversation/:userId1/:userId2", (req, res) => {
     const { userId1, userId2 } = req.params;
+    const requestingUserId = req.query.currentUserId;
+    
+    if (!requestingUserId) {
+      return res.status(401).json({ error: 'Unauthorized: currentUserId required' });
+    }
+    
+    if (requestingUserId !== userId1 && requestingUserId !== userId2) {
+      return res.status(403).json({ error: 'Forbidden: You can only view your own conversations' });
+    }
+    
     const messages = db.prepare(`
       SELECT * FROM messages 
       WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)

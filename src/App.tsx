@@ -478,7 +478,8 @@ const InboxView = () => {
   };
 
   const confirmDelete = async (msgId: string) => {
-    await api.delete(`/messages/${msgId}`);
+    if (!user) return;
+    await api.delete(`/messages/${msgId}?currentUserId=${user.uid}`);
     setChatMessages(prev => prev.filter(m => m.id !== msgId));
     setSwipeAction(null);
   };
@@ -529,7 +530,7 @@ const handleSearch = useCallback(async () => {
     if (!user) return;
     try {
       const [msgs, notifs] = await Promise.all([
-        api.get(`/messages/${user.uid}`),
+        api.get(`/messages/${user.uid}?currentUserId=${user.uid}`),
         api.get(`/notifications/${user.uid}`)
       ]);
       setMessages(msgs);
@@ -561,10 +562,10 @@ const handleSearch = useCallback(async () => {
   const openChat = async (chatUser: User) => {
     setSelectedChat(chatUser);
     if (user) {
-      const msgs = await api.get(`/messages/conversation/${user.uid}/${chatUser.uid}`);
+      const msgs = await api.get(`/messages/conversation/${user.uid}/${chatUser.uid}?currentUserId=${user.uid}`);
       setChatMessages(msgs);
       msgs.filter((m: Message) => m.receiverId === user.uid && !m.read).forEach((m: Message) => {
-        api.patch(`/messages/${m.id}/read`);
+        api.patch(`/messages/${m.id}/read`, { currentUserId: user.uid });
         api.post('/messages/receipts', {
           id: crypto.randomUUID(),
           messageId: m.id,
@@ -596,7 +597,7 @@ const handleSearch = useCallback(async () => {
       isEncrypted: true
     };
     
-    await api.post('/messages', msg);
+    await api.post('/messages', { ...msg, currentUserId: user.uid });
     
     if (replyTo) {
       setReplyTo(null);
@@ -650,13 +651,15 @@ const handleSearch = useCallback(async () => {
   };
 
   const deleteMessage = async (msgId: string) => {
-    await api.delete(`/messages/${msgId}`);
+    if (!user) return;
+    await api.delete(`/messages/${msgId}?currentUserId=${user.uid}`);
     setChatMessages(prev => prev.filter(m => m.id !== msgId));
   };
 
   const markMessageAsRead = async (msgId: string) => {
+    if (!user) return;
     try {
-      await api.patch(`/messages/${msgId}/read`);
+      await api.patch(`/messages/${msgId}/read`, { currentUserId: user.uid });
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, read: true } : m));
     } catch (error) {
       console.error("Failed to mark message as read", error);
@@ -1176,7 +1179,11 @@ const AdminDashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [verificationRequests, setVerificationRequests] = useState<any[]>([]);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [userWarnings, setUserWarnings] = useState<any[]>([]);
+  const [warningReason, setWarningReason] = useState('');
   const { formatPrice } = useCurrency();
+  const { user: currentUser } = useAuth();
 
   const fetchData = async () => {
     try {
@@ -1291,6 +1298,7 @@ useEffect(() => {
                   <tr className="border-b text-left text-muted-foreground uppercase tracking-widest text-[10px]">
                     <th className="p-4 font-medium">User</th>
                     <th className="p-4 font-medium">Role</th>
+                    <th className="p-4 font-medium">Status</th>
                     <th className="p-4 font-medium">Joined</th>
                     <th className="p-4 font-medium text-right">Actions</th>
                   </tr>
@@ -1311,7 +1319,9 @@ useEffect(() => {
                         </div>
                       </td>
                       <td className="p-4">
-                        <Badge variant="outline" className="capitalize">{u.role}</Badge>
+                        <Badge variant={u.status === 'banned' ? 'destructive' : u.status === 'suspended' ? 'secondary' : 'outline'} className="capitalize">
+                          {u.status || 'active'}
+                        </Badge>
                       </td>
                       <td className="p-4 text-muted-foreground">
                         {new Date(u.createdAt).toLocaleDateString()}
@@ -1321,13 +1331,12 @@ useEffect(() => {
                           variant="ghost" 
                           size="sm"
                           onClick={async () => {
-                            const newRole = u.role === 'admin' ? 'customer' : 'admin';
-                            await api.post('/users', { ...u, role: newRole });
-                            fetchData();
-                            toast.success(`Role updated to ${newRole}`);
+                            setSelectedUser(u);
+                            const warnings = await api.get(`/users/${u.uid}/warnings`);
+                            setUserWarnings(warnings);
                           }}
                         >
-                          Toggle Admin
+                          View Details
                         </Button>
                       </td>
                     </tr>
@@ -1443,6 +1452,166 @@ useEffect(() => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {selectedUser && (
+          <Dialog open={!!selectedUser} onOpenChange={() => { setSelectedUser(null); setWarningReason(''); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>User Details</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-16 w-16">
+                    <AvatarImage src={selectedUser.photoURL} />
+                    <AvatarFallback>{selectedUser.displayName[0]}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="text-xl font-medium">{selectedUser.displayName}</p>
+                    <p className="text-sm text-muted-foreground">{selectedUser.email}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">Role</p>
+                    <p className="font-medium capitalize">{selectedUser.role}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Status</p>
+                    <Badge variant={selectedUser.status === 'banned' ? 'destructive' : selectedUser.status === 'suspended' ? 'secondary' : 'outline'}>
+                      {selectedUser.status || 'active'}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Joined</p>
+                    <p className="font-medium">{new Date(selectedUser.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  {selectedUser.businessName && (
+                    <div>
+                      <p className="text-muted-foreground">Business</p>
+                      <p className="font-medium">{selectedUser.businessName}</p>
+                    </div>
+                  )}
+                  {selectedUser.location && (
+                    <div>
+                      <p className="text-muted-foreground">Location</p>
+                      <p className="font-medium">{selectedUser.location}</p>
+                    </div>
+                  )}
+                  {selectedUser.phoneAirtel && (
+                    <div>
+                      <p className="text-muted-foreground">Airtel Phone</p>
+                      <p className="font-medium">{selectedUser.phoneAirtel}</p>
+                    </div>
+                  )}
+                  {selectedUser.phoneMTN && (
+                    <div>
+                      <p className="text-muted-foreground">MTN Phone</p>
+                      <p className="font-medium">{selectedUser.phoneMTN}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium mb-2">User Warnings</p>
+                  {userWarnings.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No warnings</p>
+                  ) : (
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                      {userWarnings.map(w => (
+                        <div key={w.id} className="text-sm bg-secondary p-2 rounded">
+                          <p>{w.reason}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(w.createdAt).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {(selectedUser.role === 'customer' || selectedUser.role === 'seller') && (
+                  <div className="border-t pt-4 space-y-3">
+                    <p className="text-sm font-medium">Admin Actions</p>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      {selectedUser.status !== 'active' && (
+                        <Button variant="outline" size="sm" onClick={async () => {
+                          await api.post(`/users/${selectedUser.uid}/activate`, { adminUserId: currentUser?.uid });
+                          fetchData();
+                          setSelectedUser(null);
+                          toast.success('User activated');
+                        }}>
+                          Activate
+                        </Button>
+                      )}
+                      
+                      {selectedUser.status !== 'suspended' && selectedUser.status !== 'banned' && (
+                        <Button variant="secondary" size="sm" onClick={async () => {
+                          await api.post(`/users/${selectedUser.uid}/suspend`, { adminUserId: currentUser?.uid });
+                          fetchData();
+                          setSelectedUser(null);
+                          toast.success('User suspended');
+                        }}>
+                          Suspend
+                        </Button>
+                      )}
+                      
+                      {selectedUser.status !== 'banned' && selectedUser.status !== 'suspended' && (
+                        <Button variant="destructive" size="sm" onClick={async () => {
+                          await api.post(`/users/${selectedUser.uid}/ban`, { adminUserId: currentUser?.uid });
+                          fetchData();
+                          setSelectedUser(null);
+                          toast.success('User banned');
+                        }}>
+                          Ban
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Input 
+                        placeholder="Warning reason..." 
+                        value={warningReason}
+                        onChange={(e) => setWarningReason(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button 
+                        size="sm" 
+                        onClick={async () => {
+                          if (!warningReason.trim()) {
+                            toast.error('Please enter a warning reason');
+                            return;
+                          }
+                          await api.post(`/users/${selectedUser.uid}/warn`, { reason: warningReason, adminUserId: currentUser?.uid });
+                          setWarningReason('');
+                          const warnings = await api.get(`/users/${selectedUser.uid}/warnings`);
+                          setUserWarnings(warnings);
+                          toast.success('Warning issued');
+                        }}
+                      >
+                        Warn
+                      </Button>
+                    </div>
+
+                    <Button 
+                      variant="destructive" 
+                      className="w-full"
+                      onClick={async () => {
+                        if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+                          await api.delete(`/users/${selectedUser.uid}?adminUserId=${currentUser?.uid}`);
+                          fetchData();
+                          setSelectedUser(null);
+                          toast.success('User deleted');
+                        }
+                      }}
+                    >
+                      Delete User
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </Tabs>
     </div>
   );

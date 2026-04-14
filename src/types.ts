@@ -12,7 +12,8 @@ export interface User {
   email: string;
   displayName: string;
   photoURL: string;
-  role: 'customer' | 'seller' | 'admin';
+  role: 'customer' | 'seller' | 'admin' | 'master';
+  status?: 'active' | 'suspended' | 'banned';
   createdAt: string;
   businessName?: string;
   businessDescription?: string;
