@@ -183,23 +183,14 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(cors());
+  app.use(cors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  }));
   app.use(express.json());
-
-  app.get("/api/users/:uid", (req, res) => {
-    const user = db.prepare("SELECT * FROM users WHERE uid = ?").get(req.params.uid);
-    res.json(user || null);
-  });
-
-app.post("/api/users", (req, res) => {
-    const { uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles } = req.body;
-const stmt = db.prepare(`
-      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(uid, email, displayName, photoURL, role, businessName, businessDescription, password || null, createdAt, location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
-    res.json({ success: true });
-  });
+  app.use(express.urlencoded({ extended: true }));
 
   app.post("/api/auth/signup", (req, res) => {
     const { email, password, displayName } = req.body;
@@ -208,7 +199,7 @@ const stmt = db.prepare(`
       return res.status(400).json({ error: 'Email, password, and display name are required' });
     }
     
-if (password.length < 8) {
+    if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
     }
     if (!/[A-Z]/.test(password)) {
@@ -252,6 +243,21 @@ if (password.length < 8) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
     res.json(user);
+  });
+
+  app.get("/api/users/:uid", (req, res) => {
+    const user = db.prepare("SELECT * FROM users WHERE uid = ?").get(req.params.uid);
+    res.json(user || null);
+  });
+
+app.post("/api/users", (req, res) => {
+    const { uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles } = req.body;
+const stmt = db.prepare(`
+      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(uid, email, displayName, photoURL, role, businessName, businessDescription, password || null, createdAt, location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
+res.json({ success: true });
   });
 
   app.get("/api/users", (req, res) => {
