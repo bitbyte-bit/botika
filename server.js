@@ -6,6 +6,7 @@ import crypto from "crypto";
 import Database from "better-sqlite3";
 import cors from "cors";
 import webpush from "web-push";
+import bcrypt from "bcryptjs";
 
 const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
 const GOOGLE_CLIENT_ID = "";
@@ -194,7 +195,7 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  app.post("/api/auth/signup", (req, res) => {
+  app.post("/api/auth/signup", async (req, res) => {
     const { email, password, displayName } = req.body;
     
     if (!email || !password || !displayName) {
@@ -221,6 +222,7 @@ async function startServer() {
       return res.status(400).json({ error: "Email already exists" });
     }
     const uid = Math.random().toString(36).substring(2, 15);
+    const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = {
       uid,
       email,
@@ -228,23 +230,29 @@ async function startServer() {
       photoURL: "",
       role: email === 'bikuumba26@gmail.com' ? 'master' : (email === 'bitbyte790@gmail.com' ? 'admin' : 'customer'),
       createdAt: new Date().toISOString(),
-      password
+      password: hashedPassword
     };
     const stmt = db.prepare(`
       INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.createdAt, newUser.password, null, null, null, null, null);
-    res.json(newUser);
+    const { password: _, ...userWithoutPassword } = newUser;
+    res.json(userWithoutPassword);
   });
 
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE email = ? AND password = ?").get(email, password);
+    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
-    res.json(user);
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const { password: _, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
   });
 
   app.get("/api/users/:uid", (req, res) => {

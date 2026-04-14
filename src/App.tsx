@@ -280,13 +280,21 @@ const handleEmailAuth = async (e: React.FormEvent) => {
         const newUser = await api.post('/auth/signup', { email, password, displayName });
         localStorage.setItem('bikuumba_user', JSON.stringify(newUser));
         setUser(newUser);
+        setIsLoginModalOpen(false);
+        toast.success('Account created!');
       } else {
         const user = await api.post('/auth/login', { email, password });
         localStorage.setItem('bikuumba_user', JSON.stringify(user));
         setUser(user);
+        setIsLoginModalOpen(false);
+        toast.success(`Welcome back, ${user.displayName}!`);
+        
+        const fcmToken = await requestNotificationPermission();
+        if (fcmToken) {
+          await subscribeToNewItems(fcmToken, user.uid);
+          toast.success("Notifications enabled for new items!");
+        }
       }
-      setIsLoginModalOpen(false);
-      toast.success(isSignUp ? 'Account created!' : 'Welcome back!');
     } catch (error: any) {
       const message = error.message || error.response?.data?.error || 'Authentication failed';
       const match = message.match(/API error: \d+ - (.+)/);
