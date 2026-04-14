@@ -184,13 +184,22 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(cors({
-    origin: true,
+    origin: (origin, callback) => {
+      callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   }));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  app.options('*', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.sendStatus(200);
+  });
 
   app.post("/api/auth/signup", (req, res) => {
     const { email, password, displayName } = req.body;
@@ -250,14 +259,14 @@ async function startServer() {
     res.json(user || null);
   });
 
-app.post("/api/users", (req, res) => {
+  app.post("/api/users", (req, res) => {
     const { uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles } = req.body;
-const stmt = db.prepare(`
+    const stmt = db.prepare(`
       INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(uid, email, displayName, photoURL, role, businessName, businessDescription, password || null, createdAt, location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
-res.json({ success: true });
+    res.json({ success: true });
   });
 
   app.get("/api/users", (req, res) => {
