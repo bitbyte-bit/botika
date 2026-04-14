@@ -2650,7 +2650,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [isAdding, setIsAdding] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [businessData, setBusinessData] = useState({ name: '', description: '' });
-  const [isVerified, setIsVerified] = useState(true);
+  const [isVerified, setIsVerified] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
   const { formatPrice } = useCurrency();
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     name: '',
@@ -2705,9 +2706,9 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       await api.post('/users', updatedUser);
       localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
       setUser(updatedUser as User);
-      toast.success("Business registered successfully! You can now start selling.");
+      toast.success("Business registered! Please verify your business to start posting products.");
       setIsRegistering(false);
-      setView('inventory');
+      setIsAdding(true);
     } catch (error) {
       toast.error("Failed to register business");
     }
@@ -2920,11 +2921,17 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
             </p>
           )}
         </div>
-        <Dialog open={isAdding} onOpenChange={setIsAdding}>
-          <DialogTrigger render={<Button className="rounded-full" disabled={!isVerified} />}>
+        <div className="flex gap-2">
+          {!isVerified && (
+            <Button variant="outline" className="rounded-full" onClick={() => setShowVerifyModal(true)}>
+              <ShieldCheck className="mr-2 h-4 w-4" /> Verify Business
+            </Button>
+          )}
+          <Button className="rounded-full" disabled={!isVerified} onClick={() => setIsAdding(true)}>
             <Plus className="mr-2 h-4 w-4" /> Add Product
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          </Button>
+          <Dialog open={isAdding} onOpenChange={setIsAdding}>
+            <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle className="serif text-2xl">Add Boutique Product</DialogTitle>
               <DialogDescription>Enter the details for your new curated item.</DialogDescription>
@@ -3084,6 +3091,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               </CardFooter>
             </Card>
           ))}
+</div>
         </div>
       </div>
     </div>
