@@ -40,7 +40,8 @@ import {
   Send,
   Paperclip,
   Check,
-  CheckCheck
+  CheckCheck,
+  Share2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -221,13 +222,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currency, setCurrency] = useState<'USD' | 'UGX'>('UGX');
-  const rate = 3700; // 1 USD = 3700 UGX
+  const rate = 3700;
 
   const formatPrice = (price: number) => {
-    if (currency === 'UGX') {
-      return `UGX ${(price * rate).toLocaleString()}`;
-    }
-    return `$${price.toLocaleString()}`;
+    return `UGX ${(price * rate).toLocaleString()}`;
   };
 
   return (
@@ -458,8 +456,12 @@ const InboxView = () => {
     setSwipeAction(null);
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim()) {
+      setSearchResults({ users: [], onlineUsers: [] });
+      setSearching(false);
+      return;
+    }
     setSearching(true);
     try {
       const [allUsers, onlineUsers] = await Promise.all([
@@ -469,25 +471,32 @@ const InboxView = () => {
       
       const query = searchQuery.toLowerCase();
       
-      const users = (allUsers as User[]).filter((u: User) => 
+      const users = (allUsers || []).filter((u: User) => 
         (u.displayName?.toLowerCase().includes(query) || u.email?.toLowerCase().includes(query)) &&
         u.role !== 'admin' &&
         u.uid !== user?.uid
       );
       
-      setSearchResults({ users, onlineUsers });
+      setSearchResults({ users, onlineUsers: onlineUsers || [] });
     } catch (error) {
-      console.error("Search failed", error);
+      console.error('Search failed', error);
+      setSearchResults({ users: [], onlineUsers: [] });
     } finally {
       setSearching(false);
     }
-  };
+  }, [searchQuery, user?.uid]);
 
   useEffect(() => {
-    if (searchOpen && searchQuery) {
-      handleSearch();
+    if (searchOpen && searchQuery.trim()) {
+      const timer = setTimeout(() => {
+        handleSearch();
+      }, 300);
+      return () => clearTimeout(timer);
+    } else if (!searchQuery.trim()) {
+      setSearchResults({ users: [], onlineUsers: [] });
+      setSearching(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, searchOpen, handleSearch]);
 
   const fetchInbox = async () => {
     if (!user) return;
@@ -780,47 +789,50 @@ const InboxView = () => {
         </Button>
       </div>
       
-      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
-        <DialogContent className="max-w-md">
+<Dialog open={searchOpen} onOpenChange={(open) => { setSearchOpen(open); if (!open) { setSearchQuery(''); setSearchResults({ users: [], onlineUsers: [] }); } }}>
+        <DialogContent className='max-w-md'>
           <DialogHeader>
             <DialogTitle>Search Users</DialogTitle>
             <DialogDescription>Find users to chat with</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className='space-y-4'>
             <Input
-              placeholder="Search by name..."
+              placeholder='Search by name...'
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
-            {searching && <p className="text-sm text-muted-foreground">Searching...</p>}
-            {!searching && searchResults.users.length === 0 && searchQuery && (
-              <p className="text-sm text-muted-foreground">No results found.</p>
+            {searching && <p className='text-sm text-muted-foreground'>Searching...</p>}
+            {!searching && searchQuery.trim() && searchResults.users.length === 0 && (
+              <p className='text-sm text-muted-foreground'>No results found.</p>
+            )}
+            {!searching && !searchQuery.trim() && (
+              <p className='text-sm text-muted-foreground'>Type to search for users.</p>
             )}
             {searchResults.users.length > 0 && (
-              <div className="space-y-2">
+              <div className='space-y-2 max-h-64 overflow-y-auto'>
                 {searchResults.users.slice(0, 10).map((u) => {
                   const isOnline = searchResults.onlineUsers.includes(u.uid);
                   return (
                     <div 
                       key={u.uid} 
-                      className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 cursor-pointer hover:bg-secondary"
+                      className='flex items-center gap-3 p-3 rounded-lg bg-secondary/50 cursor-pointer hover:bg-secondary'
                       onClick={() => { setSearchOpen(false); openChat(u); }}
                     >
-                      <div className="relative">
-                        <Avatar className="h-10 w-10">
+                      <div className='relative'>
+                        <Avatar className='h-10 w-10'>
                           <AvatarImage src={u.photoURL || undefined} />
                           <AvatarFallback>{u.displayName?.[0]?.toUpperCase() || '?'}</AvatarFallback>
                         </Avatar>
                         {isOnline && (
-                          <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-background" />
+                          <div className='absolute bottom-0 right-0 h-3 w-3 bg-green-500 rounded-full border-2 border-background' />
                         )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{u.displayName}</p>
-                        <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                      <div className='flex-1 min-w-0'>
+                        <p className='text-sm font-medium truncate'>{u.displayName}</p>
+                        <p className='text-xs text-muted-foreground truncate'>{u.email}</p>
                       </div>
-                      {isOnline && <Badge className="bg-green-500 text-white text-[10px]">Online</Badge>}
+                      {isOnline && <Badge className='bg-green-500 text-white text-[10px]'>Online</Badge>}
                     </div>
                   );
                 })}
@@ -1154,28 +1166,53 @@ const AdminDashboard = () => {
     }
   };
 
-  useEffect(() => {
+useEffect(() => {
     fetchData();
+  }, []);
+
+  const [pendingProducts, setPendingProducts] = useState<Product[]>([]);
+
+  const fetchPendingProducts = async () => {
+    try {
+      const data = await api.get('/products/pending');
+      setPendingProducts(data);
+    } catch (error) {
+      console.error('Failed to fetch pending products', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchPendingProducts();
   }, []);
 
   const handleApprove = async (userId: string, approved: boolean) => {
     try {
       await api.post('/business/approve', { userId, approved, reviewedBy: 'admin' });
       fetchData();
-      toast.success(approved ? "Business approved" : "Business denied");
+      toast.success(approved ? 'Business approved' : 'Business denied');
       
       if (approved) {
         const user = users.find(u => u.uid === userId);
         if (user) {
           await api.post('/notifications/send', {
             userId,
-            title: "Business Approved!",
-            body: "Congratulations! Your business has been verified. You can now start posting products."
+            title: 'Business Approved!',
+            body: 'Congratulations! Your business has been verified. You can now start posting products.'
           });
         }
       }
     } catch (error) {
-      toast.error("Failed to process verification");
+      toast.error('Failed to process verification');
+    }
+  };
+
+  const handleApproveProduct = async (productId: string, approved: boolean) => {
+    try {
+      await api.patch(`/products/${productId}/approve`, { approved });
+      fetchPendingProducts();
+      toast.success(approved ? 'Product approved' : 'Product rejected');
+    } catch (error) {
+      toast.error('Failed to process product');
     }
   };
 
@@ -2095,9 +2132,16 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
                   <ShieldCheck className="h-3 w-3" /> Authentic
                 </Badge>
               </div>
+)}
+            {product.discount && product.discount > 0 && (
+              <div className='absolute top-2 right-2 md:top-4'>
+                <Badge className='bg-red-600 text-white'>
+                  -{product.discount}%
+                </Badge>
+              </div>
             )}
-            <div className="absolute top-2 right-2 md:top-4 md:right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button 
+            <div className='absolute top-2 right-2 md:top-4 md:right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity'>
+              <Button
                 size="icon" 
                 className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-paper text-ink hover:bg-accent hover:text-white shadow-lg"
                 onClick={(e) => {
@@ -2806,6 +2850,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
 
 const OrdersView = ({ user }: { user: User }) => {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const { formatPrice } = useCurrency();
 
   const fetchOrders = async () => {
@@ -2817,7 +2862,7 @@ const OrdersView = ({ user }: { user: User }) => {
         setOrders(data.filter((o: Order) => o.customerId === user.uid));
       }
     } catch (error) {
-      console.error("Failed to fetch orders", error);
+      console.error('Failed to fetch orders', error);
     }
   };
 
@@ -2829,80 +2874,183 @@ const OrdersView = ({ user }: { user: User }) => {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'pending': return <Clock className="h-4 w-4 text-amber-500" />;
-      case 'processing': return <Settings className="h-4 w-4 text-blue-500" />;
-      case 'shipped': return <Truck className="h-4 w-4 text-indigo-500" />;
-      case 'delivered': return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-      case 'cancelled': return <AlertCircle className="h-4 w-4 text-destructive" />;
+      case 'pending': return <Clock className='h-4 w-4 text-amber-500' />;
+      case 'processing': return <Settings className='h-4 w-4 text-blue-500' />;
+      case 'shipped': return <Truck className='h-4 w-4 text-indigo-500' />;
+      case 'delivered': return <CheckCircle2 className='h-4 w-4 text-emerald-500' />;
+      case 'cancelled': return <AlertCircle className='h-4 w-4 text-destructive' />;
       default: return null;
     }
   };
 
+  const handleUpdateStatus = async (orderId: string, newStatus: string) => {
+    try {
+      await api.patch(`/orders/${orderId}/status`, { status: newStatus });
+      fetchOrders();
+      toast.success(`Order marked as ${newStatus}`);
+    } catch (error) {
+      toast.error('Failed to update order status');
+    }
+  };
+
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
+    <div className='container mx-auto px-4 py-8 space-y-8'>
       <div>
-        <h2 className="text-4xl serif">Order History</h2>
-        <p className="text-muted-foreground">Track your boutique purchases and deliveries.</p>
+        <h2 className='text-4xl serif'>Order History</h2>
+        <p className='text-muted-foreground'>Track your boutique purchases and deliveries.</p>
       </div>
 
-      <div className="space-y-6">
+      <div className='space-y-6'>
         {orders.length === 0 ? (
-          <div className="text-center py-20 bg-paper rounded-3xl border">
-            <Package className="h-12 w-12 mx-auto mb-2 opacity-20" />
-            <p className="text-muted-foreground">No orders found</p>
+          <div className='text-center py-20 bg-paper rounded-3xl border'>
+            <Package className='h-12 w-12 mx-auto mb-2 opacity-20' />
+            <p className='text-muted-foreground'>No orders found</p>
           </div>
         ) : (
           orders.map(order => (
-            <Card key={order.id} className="border-none bg-paper shadow-sm overflow-hidden">
-              <div className="p-6 flex flex-col md:flex-row gap-8">
-                <div className="flex-1 space-y-4">
-                  <div className="flex justify-between items-start">
+            <Card key={order.id} className='border-none bg-paper shadow-sm overflow-hidden'>
+              <div className='p-6 flex flex-col md:flex-row gap-8'>
+                <div className='flex-1 space-y-4'>
+                  <div className='flex justify-between items-start'>
                     <div>
-                      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Order ID</p>
-                      <p className="font-mono text-sm">#{order.id.slice(-8).toUpperCase()}</p>
+                      <p className='text-xs uppercase tracking-widest text-muted-foreground mb-1'>Order ID</p>
+                      <p className='font-mono text-sm'>#{order.id.slice(-8).toUpperCase()}</p>
                     </div>
-                    <Badge variant="secondary" className="flex items-center gap-1.5 px-3 py-1">
+                    <Badge variant='secondary' className='flex items-center gap-1.5 px-3 py-1'>
                       {getStatusIcon(order.status)}
-                      <span className="capitalize">{order.status}</span>
+                      <span className='capitalize'>{order.status}</span>
                     </Badge>
                   </div>
-                  <div className="space-y-3">
+                  <div className='space-y-3'>
                     {order.items.map((item, idx) => (
-                      <div key={idx} className="flex items-center gap-3">
-                        <img src={item.image} alt={item.name} className="h-12 w-12 rounded-lg object-cover bg-secondary" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{item.name}</p>
-                          <p className="text-xs text-muted-foreground">Qty: {item.quantity} • {formatPrice(item.price)}</p>
+                      <div key={idx} className='flex items-center gap-3'>
+                        <img src={item.image} alt={item.name} className='h-12 w-12 rounded-lg object-cover bg-secondary' />
+                        <div className='flex-1'>
+                          <p className='text-sm font-medium'>{item.name}</p>
+                          <p className='text-xs text-muted-foreground'>Qty: {item.quantity} • {formatPrice(item.price)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-                <Separator orientation="vertical" className="hidden md:block h-auto" />
-                <div className="w-full md:w-64 space-y-4">
+                <Separator orientation='vertical' className='hidden md:block h-auto' />
+                <div className='w-full md:w-64 space-y-4'>
                   <div>
-                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Placed On</p>
-                    <p className="text-sm">{new Date(order.createdAt).toLocaleDateString()}</p>
+                    <p className='text-xs uppercase tracking-widest text-muted-foreground mb-1'>Placed On</p>
+                    <p className='text-sm'>{new Date(order.createdAt).toLocaleDateString()}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Total Amount</p>
-                    <p className="text-lg font-medium">{formatPrice(order.total)}</p>
+                    <p className='text-xs uppercase tracking-widest text-muted-foreground mb-1'>Total Amount</p>
+                    <p className='text-lg font-medium'>{formatPrice(order.total)}</p>
                   </div>
                   {order.trackingNumber && (
                     <div>
-                      <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Tracking Number</p>
-                      <p className="text-sm font-mono text-accent">{order.trackingNumber}</p>
+                      <p className='text-xs uppercase tracking-widest text-muted-foreground mb-1'>Tracking Number</p>
+                      <p className='text-sm font-mono text-accent'>{order.trackingNumber}</p>
                     </div>
                   )}
-                  <Button variant="outline" className="w-full rounded-full">Order Details</Button>
+                  <Button variant='outline' className='w-full rounded-full' onClick={() => setSelectedOrder(order)}>Order Details</Button>
                 </div>
               </div>
             </Card>
           ))
         )}
       </div>
+
+      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+        <DialogContent className='max-w-2xl max-h-[90vh] overflow-y-auto'>
+          <DialogHeader>
+            <DialogTitle className='serif text-2xl'>Order Details</DialogTitle>
+            <DialogDescription>Order #{selectedOrder?.id.slice(-8).toUpperCase()}</DialogDescription>
+          </DialogHeader>
+          {selectedOrder && (
+            <div className='space-y-6'>
+              <div className='flex items-center justify-between'>
+                <div>
+                  <p className='text-xs uppercase tracking-widest text-muted-foreground'>Status</p>
+                  <Badge variant='secondary' className='flex items-center gap-1.5 px-3 py-1 mt-1'>
+                    {getStatusIcon(selectedOrder.status)}
+                    <span className='capitalize'>{selectedOrder.status}</span>
+                  </Badge>
+                </div>
+                <div>
+                  <p className='text-xs uppercase tracking-widest text-muted-foreground'>Total</p>
+                  <p className='text-xl font-medium'>{formatPrice(selectedOrder.total)}</p>
+                </div>
+              </div>
+
+              <div>
+                <p className='text-xs uppercase tracking-widest text-muted-foreground mb-3'>Order Timeline</p>
+                <div className='space-y-4'>
+                  {['pending', 'processing', 'shipped', 'delivered'].map((status, idx) => {
+                    const statusIdx = ['pending', 'processing', 'shipped', 'delivered'].indexOf(selectedOrder.status);
+                    const isCompleted = idx <= statusIdx;
+                    const isCurrent = idx === statusIdx;
+                    return (
+                      <div key={status} className='flex items-center gap-4'>
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isCompleted ? 'bg-green-500 text-white' : 'bg-secondary text-muted-foreground'}`}>
+                          {isCompleted ? <CheckCircle2 className='h-4 w-4' /> : <Clock className='h-4 w-4' />}
+                        </div>
+                        <div className='flex-1'>
+                          <p className={`font-medium capitalize ${isCompleted ? 'text-foreground' : 'text-muted-foreground'}`}>{status}</p>
+                          <p className='text-xs text-muted-foreground'>{isCurrent ? 'Current status' : isCompleted ? 'Completed' : 'Pending'}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className='text-xs uppercase tracking-widest text-muted-foreground mb-3'>Items</p>
+                <div className='space-y-3'>
+                  {selectedOrder.items.map((item, idx) => (
+                    <div key={idx} className='flex items-center gap-3 p-3 bg-secondary/30 rounded-lg'>
+                      <img src={item.image} alt={item.name} className='h-16 w-16 rounded-lg object-cover bg-secondary' />
+                      <div className='flex-1'>
+                        <p className='font-medium'>{item.name}</p>
+                        <p className='text-sm text-muted-foreground'>Qty: {item.quantity} × {formatPrice(item.price)}</p>
+                      </div>
+                      <p className='font-medium'>{formatPrice(item.price * item.quantity)}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className='mt-4 pt-4 border-t flex justify-between items-center'>
+                  <p className='font-medium'>Total</p>
+                  <p className='text-xl font-medium'>{formatPrice(selectedOrder.total)}</p>
+                </div>
+              </div>
+
+              {selectedOrder.trackingNumber && (
+                <div>
+                  <p className='text-xs uppercase tracking-widest text-muted-foreground mb-2'>Tracking</p>
+                  <p className='font-mono text-lg text-accent'>{selectedOrder.trackingNumber}</p>
+                </div>
+              )}
+
+              {user.role === 'seller' && selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
+                <div className='flex gap-2'>
+                  {selectedOrder.status === 'pending' && (
+                    <Button className='flex-1' onClick={() => handleUpdateStatus(selectedOrder.id, 'processing')}>Process Order</Button>
+                  )}
+                  {selectedOrder.status === 'processing' && (
+                    <Button className='flex-1' onClick={() => handleUpdateStatus(selectedOrder.id, 'shipped')}>Mark as Shipped</Button>
+                  )}
+                  {selectedOrder.status === 'shipped' && (
+                    <Button className='flex-1' onClick={() => handleUpdateStatus(selectedOrder.id, 'delivered')}>Confirm Delivery</Button>
+                  )}
+                </div>
+              )}
+
+              {user.role === 'customer' && selectedOrder.status === 'shipped' && (
+                <Button className='w-full' onClick={() => handleUpdateStatus(selectedOrder.id, 'delivered')}>Confirm Received</Button>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
-  );
+);
 };
 
 const MarzPay = ({ amount, onSuccess }: { amount: number, onSuccess: (details: any) => void }) => {

@@ -37,7 +37,12 @@ db.exec(`
     businessName TEXT,
     businessDescription TEXT,
     password TEXT,
-    createdAt TEXT
+    createdAt TEXT,
+    location TEXT,
+    phoneAirtel TEXT,
+    phoneMTN TEXT,
+    coverPhoto TEXT,
+    socialHandles TEXT
   );
 
   CREATE TABLE IF NOT EXISTS products (
@@ -56,7 +61,11 @@ db.exec(`
     sellerName TEXT,
     createdAt TEXT,
     visitCount INTEGER,
-    likeCount INTEGER
+    likeCount INTEGER,
+    isApproved INTEGER DEFAULT 0,
+    discount INTEGER DEFAULT 0,
+    bulkDiscountMinQty INTEGER DEFAULT 0,
+    bulkDiscountPercent INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS orders (
@@ -182,13 +191,13 @@ async function startServer() {
     res.json(user || null);
   });
 
-  app.post("/api/users", (req, res) => {
-    const { uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt } = req.body;
-    const stmt = db.prepare(`
-      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+app.post("/api/users", (req, res) => {
+    const { uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles } = req.body;
+const stmt = db.prepare(`
+      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(uid, email, displayName, photoURL, role, businessName, businessDescription, password || null, createdAt);
+    stmt.run(uid, email, displayName, photoURL, role, businessName, businessDescription, password || null, createdAt, location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
     res.json({ success: true });
   });
 
@@ -209,10 +218,10 @@ async function startServer() {
       password
     };
     const stmt = db.prepare(`
-      INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.createdAt, newUser.password);
+    stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.createdAt, newUser.password, null, null, null, null, null);
     res.json(newUser);
   });
 
@@ -277,6 +286,24 @@ async function startServer() {
     res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
   });
 
+  app.get('/api/categories', (req, res) => {
+    const categories = db.prepare('SELECT DISTINCT category FROM products WHERE isApproved = 1 AND category IS NOT NULL AND category != ?').all('');
+    res.json(categories.map((c) => c.category).filter(Boolean));
+  });
+
+  app.get('/api/best-sellers', (req, res) => {
+    const products = db.prepare(`
+      SELECT p.*, u.businessName as sellerName, u.photoURL as sellerPhoto,
+        (SELECT COUNT(*) FROM reviews r WHERE r.productId = p.id) as reviewCount
+      FROM products p
+      JOIN users u ON p.sellerId = u.uid
+      WHERE p.isApproved = 1
+      ORDER BY (COALESCE(p.reviewCount, 0) * 2 + COALESCE(p.likeCount, 0) + COALESCE(p.visitCount, 0)) DESC
+      LIMIT 20
+    `).all();
+    res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
+  });
+
   app.post("/api/products", (req, res) => {
     const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount } = req.body;
     const stmt = db.prepare(`
@@ -307,7 +334,13 @@ async function startServer() {
       INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, customerId, JSON.stringify(items), total, status, paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt);
+    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt);
+    res.json({ success: true });
+  });
+
+  app.patch('/api/orders/:id/status', (req, res) => {
+    const { status } = req.body;
+    db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
     res.json({ success: true });
   });
 
