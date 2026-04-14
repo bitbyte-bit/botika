@@ -174,19 +174,19 @@ db.exec(`
 const masterAdminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba26@gmail.com');
 if (!masterAdminExists) {
   const stmt = db.prepare(`
-    INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run('master-admin', 'bikuumba26@gmail.com', 'Master Admin', '', 'master', new Date().toISOString(), 'bikuumba');
+  stmt.run('master-admin', 'bikuumba26@gmail.com', 'Master Admin', '', 'master', 'active', new Date().toISOString(), 'bikuumba');
 }
 
 const adminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba@gmail.com');
 if (!adminExists) {
   const stmt = db.prepare(`
-    INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run('admin-user', 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', new Date().toISOString(), 'bikuumba');
+  stmt.run('admin-user', 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
 }
 
 async function startServer() {
@@ -239,14 +239,15 @@ async function startServer() {
         displayName,
         photoURL: "",
         role: email === 'bikuumba26@gmail.com' ? 'master' : (email === 'bitbyte790@gmail.com' ? 'admin' : 'customer'),
+        status: 'active',
         createdAt: new Date().toISOString(),
         password: hashedPassword
       };
       const stmt = db.prepare(`
-        INSERT INTO users (uid, email, displayName, photoURL, role, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.createdAt, newUser.password, null, null, null, null, null);
+      stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.status, newUser.createdAt, newUser.password, null, null, null, null, null);
       const { password: _, ...userWithoutPassword } = newUser;
       res.json(userWithoutPassword);
     } catch (err) {
@@ -264,6 +265,12 @@ async function startServer() {
       const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
       if (!user) {
         return res.status(401).json({ error: "Invalid email or password" });
+      }
+      if (user.status === 'banned') {
+        return res.status(403).json({ error: "Your account has been banned" });
+      }
+      if (user.status === 'suspended') {
+        return res.status(403).json({ error: "Your account is currently suspended" });
       }
       let validPassword = false;
       if (user.password && user.password.startsWith('$2')) {
