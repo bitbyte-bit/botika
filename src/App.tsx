@@ -151,9 +151,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           displayName,
           photoURL,
           role: email === 'bitbyte790@gmail.com' || email === 'bikuumba26@gmail.com' ? 'admin' : 'customer',
+          status: 'active',
           createdAt: new Date().toISOString(),
         };
         await api.post('/users', sqlUser);
+      }
+      
+      if (sqlUser.status === 'banned') {
+        toast.error('Your account has been banned');
+        return;
+      }
+      if (sqlUser.status === 'suspended') {
+        toast.error('Your account is currently suspended');
+        return;
       }
       
       localStorage.setItem('bikuumba_user', JSON.stringify(sqlUser));
@@ -284,6 +294,18 @@ const handleEmailAuth = async (e: React.FormEvent) => {
         toast.success('Account created!');
       } else {
         const user = await api.post('/auth/login', { email, password });
+        
+        if (user.status === 'banned') {
+          toast.error('Your account has been banned');
+          setLoading(false);
+          return;
+        }
+        if (user.status === 'suspended') {
+          toast.error('Your account is currently suspended');
+          setLoading(false);
+          return;
+        }
+        
         localStorage.setItem('bikuumba_user', JSON.stringify(user));
         setUser(user);
         setIsLoginModalOpen(false);

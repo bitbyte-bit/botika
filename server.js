@@ -252,7 +252,7 @@ async function startServer() {
       res.json(userWithoutPassword);
     } catch (err) {
       console.error('Signup error:', err);
-      res.status(500).json({ error: 'Server error during signup' });
+      res.status(500).json({ error: err.message || 'Server error during signup' });
     }
   });
 
