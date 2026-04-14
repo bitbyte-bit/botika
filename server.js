@@ -194,13 +194,6 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  app.options('*', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.sendStatus(200);
-  });
-
   app.post("/api/auth/signup", (req, res) => {
     const { email, password, displayName } = req.body;
     
@@ -567,7 +560,10 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: { overlay: false }
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
