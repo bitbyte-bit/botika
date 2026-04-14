@@ -433,7 +433,7 @@ const handleEmailAuth = async (e: React.FormEvent) => {
   );
 };
 
-const BottomNav = ({ currentView, onNavigate }: { currentView: string, onNavigate: (view: string) => void }) => {
+const BottomNav = ({ currentView, onNavigate, unreadCount = 0 }: { currentView: string, onNavigate: (view: string) => void, unreadCount?: number }) => {
   const { user, login } = useAuth();
 
   const handleBusinessClick = () => {
@@ -461,11 +461,18 @@ const BottomNav = ({ currentView, onNavigate }: { currentView: string, onNavigat
             <button
               key={item.id}
               onClick={() => item.action ? item.action() : onNavigate(item.id)}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors ${
+              className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors relative ${
                 isActive ? 'text-accent' : 'text-muted-foreground'
               }`}
             >
-              <Icon className="h-5 w-5" />
+              <div className="relative">
+                <Icon className="h-5 w-5" />
+                {item.id === 'inbox' && unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-4 flex items-center justify-center px-1">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-medium">{item.label}</span>
             </button>
           );
@@ -733,6 +740,12 @@ const handleSearch = useCallback(async () => {
                 animate={{ opacity: 1, y: 0 }}
                 className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
               >
+                {msg.senderId !== user.uid && (
+                  <Avatar className="h-8 w-8 mr-2 self-end">
+                    <AvatarImage src={selectedChat?.photoURL} />
+                    <AvatarFallback>{selectedChat?.displayName?.[0]}</AvatarFallback>
+                  </Avatar>
+                )}
                 <div 
                   className={`max-w-[70%] p-3 rounded-2xl touch-pan-y ${
                     msg.senderId === user.uid 
@@ -752,6 +765,9 @@ const handleSearch = useCallback(async () => {
                     }
                   }}
                 >
+                  {msg.senderId !== user.uid && (
+                    <p className="text-xs font-medium text-muted-foreground mb-1">{msg.senderName}</p>
+                  )}
                   {msg.replyTo && (
                     <div className="text-xs opacity-60 mb-2 border-l-2 pl-2">
                       Reply to: {chatMessages.find(m => m.id === msg.replyTo)?.content || 'Message'}
@@ -990,7 +1006,7 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
         api.get('/products')
       ]);
       setSeller(s);
-      setProducts(p.filter((prod: Product) => prod.sellerId === sellerId));
+      setProducts(p.filter((prod: Product) => prod.sellerId === sellerId && prod.isApproved !== 0));
 
       if (user) {
         const follows = await api.get(`/follows/${user.uid}`);
@@ -1640,7 +1656,7 @@ useEffect(() => {
 };
 
 const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string) => void, onSelectSeller: (id: string) => void }) => {
-  const { user, login, logout } = useAuth();
+  const { user, login, logout, setUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState<Partial<User>>({});
   const [followedBusinesses, setFollowedBusinesses] = useState<User[]>([]);
@@ -1690,7 +1706,10 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   const handleUpdateProfile = async () => {
     if (!user) return;
     try {
-      await api.post('/users', { ...user, ...profileData });
+      const updatedUser = { ...user, ...profileData, socialHandles: typeof profileData.socialHandles === 'string' ? JSON.parse(profileData.socialHandles) : profileData.socialHandles };
+      await api.post('/users', updatedUser);
+      setUser(updatedUser);
+      localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
       toast.success("Profile updated");
       setIsEditing(false);
     } catch (error) {
@@ -1999,51 +2018,49 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
                     )}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Instagram Handle</Label>
-                    <Input 
-                      placeholder="username" 
-                      value={profileData.socialHandles?.instagram || ''} 
-                      onChange={e => setProfileData({
-                        ...profileData, 
-                        socialHandles: {...profileData.socialHandles, instagram: e.target.value}
-                      })} 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Facebook Page</Label>
-                    <Input 
-                      placeholder="pagename" 
-                      value={profileData.socialHandles?.facebook || ''} 
-                      onChange={e => setProfileData({
-                        ...profileData, 
-                        socialHandles: {...profileData.socialHandles, facebook: e.target.value}
-                      })} 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Twitter Handle</Label>
-                    <Input 
-                      placeholder="username" 
-                      value={profileData.socialHandles?.twitter || ''} 
-                      onChange={e => setProfileData({
-                        ...profileData, 
-                        socialHandles: {...profileData.socialHandles, twitter: e.target.value}
-                      })} 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>TikTok Handle</Label>
-                    <Input 
-                      placeholder="username" 
-                      value={profileData.socialHandles?.tiktok || ''} 
-                      onChange={e => setProfileData({
-                        ...profileData, 
-                        socialHandles: {...profileData.socialHandles, tiktok: e.target.value}
-                      })} 
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label>Instagram URL</Label>
+                  <Input 
+                    placeholder="https://instagram.com/username" 
+                    value={profileData.socialHandles?.instagram || ''} 
+                    onChange={e => setProfileData({
+                      ...profileData, 
+                      socialHandles: {...profileData.socialHandles, instagram: e.target.value}
+                    })} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Facebook URL</Label>
+                  <Input 
+                    placeholder="https://facebook.com/pagename" 
+                    value={profileData.socialHandles?.facebook || ''} 
+                    onChange={e => setProfileData({
+                      ...profileData, 
+                      socialHandles: {...profileData.socialHandles, facebook: e.target.value}
+                    })} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Twitter/X URL</Label>
+                  <Input 
+                    placeholder="https://x.com/username" 
+                    value={profileData.socialHandles?.twitter || ''} 
+                    onChange={e => setProfileData({
+                      ...profileData, 
+                      socialHandles: {...profileData.socialHandles, twitter: e.target.value}
+                    })} 
+                  />
+                </div>
+<div className="space-y-2">
+                  <Label>TikTok URL</Label>
+                  <Input 
+                    placeholder="https://tiktok.com/@username" 
+                    value={profileData.socialHandles?.tiktok || ''} 
+                    onChange={e => setProfileData({
+                      ...profileData, 
+                      socialHandles: {...profileData.socialHandles, tiktok: e.target.value}
+                    })} 
+                  />
                 </div>
               </>
             )}
@@ -2747,6 +2764,10 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   };
 
   const handleAddProduct = async () => {
+    if (!isVerified) {
+      toast.error('Please verify your business to post products');
+      return;
+    }
     try {
       const productData = {
         ...newProduct,
@@ -2876,15 +2897,15 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     { label: 'Active Orders', value: orders.filter(o => o.status === 'pending' || o.status === 'processing').length, icon: Package, color: 'text-amber-600' },
   ];
 
-  const chartData = [
-    { name: 'Mon', sales: 400 },
-    { name: 'Tue', sales: 300 },
-    { name: 'Wed', sales: 600 },
-    { name: 'Thu', sales: 800 },
-    { name: 'Fri', sales: 500 },
-    { name: 'Sat', sales: 900 },
-    { name: 'Sun', sales: 700 },
-  ];
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const chartData = days.map(day => {
+    const dayIndex = days.indexOf(day);
+    const dayOrders = orders.filter(o => {
+      const orderDate = new Date(o.createdAt);
+      return orderDate.getDay() === dayIndex && o.status !== 'cancelled';
+    });
+    return { name: day, sales: dayOrders.reduce((sum, o) => sum + o.total, 0) };
+  });
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-12 pb-24">
@@ -3549,9 +3570,27 @@ const AppContent = () => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const { user, login } = useAuth();
   const { addItem } = useCart();
   const { currency, setCurrency, formatPrice } = useCurrency();
+
+  const fetchUnreadCount = useCallback(async () => {
+    if (!user) {
+      setUnreadMessagesCount(0);
+      return;
+    }
+    try {
+      const msgs = await api.get(`/messages/${user.uid}?currentUserId=${user.uid}`);
+      setUnreadMessagesCount(msgs.filter((m: Message) => !m.read && m.receiverId === user.uid).length);
+    } catch (e) {}
+  }, [user]);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 15000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
 
   const fetchProducts = async () => {
     try {
@@ -3574,10 +3613,11 @@ const AppContent = () => {
   }, [user]);
 
   const filteredProducts = products.filter(p => 
+    p.isApproved !== 0 && (
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.sellerName && p.sellerName.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  ));
 
   // Master Admin Check
   useEffect(() => {
@@ -3790,7 +3830,7 @@ const AppContent = () => {
         </AnimatePresence>
       </main>
 
-      <BottomNav currentView={view} onNavigate={setView} />
+      <BottomNav currentView={view} onNavigate={setView} unreadCount={unreadMessagesCount} />
 
       {selectedProduct && (
         <ProductDetail 

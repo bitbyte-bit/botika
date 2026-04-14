@@ -53,6 +53,7 @@ export interface Product {
   discount?: number;
   bulkDiscountMinQty?: number;
   bulkDiscountPercent?: number;
+  isApproved?: number;
 }
 
 export interface Message {

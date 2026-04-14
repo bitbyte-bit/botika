@@ -853,6 +853,78 @@ async function startServer() {
     });
   }
 
+  app.get("/share/user/:uid", (req, res) => {
+    const user = db.prepare("SELECT uid, displayName, photoURL, businessName, businessDescription, role FROM users WHERE uid = ?").get(req.params.uid);
+    if (!user) {
+      return res.status(404).send("User not found");
+    }
+    
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta property="og:title" content="${user.displayName}${user.businessName ? ' - ' + user.businessName : ''} | Bikuumba">
+  <meta property="og:description" content="${user.businessDescription || 'Check out this business on Bikuumba Marketplace'}">
+  <meta property="og:image" content="${user.photoURL || 'https://bikuumba-4y78.onrender.com/og-default.png'}">
+  <meta property="og:url" content="https://bikuumba-4y78.onrender.com/profile/${user.uid}">
+  <meta property="og:type" content="profile">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>${user.displayName} | Bikuumba</title>
+</head>
+<body>
+  <p>Redirecting to Bikuumba...</p>
+  <script>window.location.href = "/profile/${user.uid}";</script>
+</body>
+</html>`;
+    res.send(html);
+  });
+
+  app.get("/share/product/:productId", (req, res) => {
+    const product = db.prepare(`
+      SELECT p.*, u.displayName as sellerName, u.photoURL as sellerPhoto 
+      FROM products p 
+      JOIN users u ON p.sellerId = u.uid 
+      WHERE p.id = ?
+    `).get(req.params.productId);
+    
+    if (!product) {
+      return res.status(404).send("Product not found");
+    }
+    
+    const images = JSON.parse(product.images || '[]');
+    const imageUrl = images[0] || 'https://bikuumba-4y78.onrender.com/og-default.png';
+    const price = product.discount ? Math.round(product.price * (1 - product.discount / 100)) : product.price;
+    
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta property="og:title" content="${product.name} - ${formatPrice(price)} | Bikuumba">
+  <meta property="og:description" content="${product.description?.substring(0, 150) || 'Check out this product on Bikuumba Marketplace'}${product.description?.length > 150 ? '...' : ''}">
+  <meta property="og:image" content="${imageUrl}">
+  <meta property="og:url" content="https://bikuumba-4y78.onrender.com/product/${product.id}">
+  <meta property="og:type" content="product">
+  <meta property="product:price:amount" content="${price}">
+  <meta property="product:price:currency" content="UGX">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>${product.name} - ${formatPrice(price)} | Bikuumba</title>
+</head>
+<body>
+  <p>Redirecting to Bikuumba...</p>
+  <script>window.location.href = "/product/${product.id}";</script>
+</body>
+</html>`;
+    res.send(html);
+  });
+
+  function formatPrice(amount) {
+    return new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX', maximumFractionDigits:0 }).format(amount);
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
