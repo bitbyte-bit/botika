@@ -1003,7 +1003,7 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
     try {
       const [s, p] = await Promise.all([
         api.get(`/users/${sellerId}`),
-        api.get('/products')
+        api.get('/products?includeUnapproved=true')
       ]);
       setSeller(s);
       setProducts(p.filter((prod: Product) => prod.sellerId === sellerId && prod.isApproved !== 0));
@@ -1227,7 +1227,7 @@ const AdminDashboard = () => {
     try {
       const [u, p, o, v] = await Promise.all([
         api.get('/users'),
-        api.get('/products'),
+        api.get('/products?includeUnapproved=true'),
         api.get('/orders'),
         api.get('/business/verify-requests')
       ]);
@@ -2651,7 +2651,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     if (user.role === 'customer') return;
     try {
       const [p, o, v] = await Promise.all([
-        api.get('/products'),
+        api.get('/products?includeUnapproved=true'),
         api.get('/orders'),
         user.uid ? api.get(`/business/verify/${user.uid}`) : Promise.resolve(null)
       ]);
@@ -3663,7 +3663,7 @@ const AppContent = () => {
 
   const fetchProducts = async () => {
     try {
-      const prods = await api.get('/products');
+      const prods = await api.get('/products?includeUnapproved=true');
       setProducts(prods);
       
       // Seed data if empty

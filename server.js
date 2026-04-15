@@ -505,7 +505,13 @@ async function startServer() {
   });
 
   app.get("/api/products", (req, res) => {
-    const products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
+    const { includeUnapproved } = req.query;
+    let products;
+    if (includeUnapproved === 'true') {
+      products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
+    } else {
+      products = db.prepare("SELECT * FROM products WHERE isApproved = 1 ORDER BY createdAt DESC").all();
+    }
     res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
   });
 
