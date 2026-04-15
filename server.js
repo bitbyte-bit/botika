@@ -162,6 +162,9 @@ db.exec(`
     userId TEXT,
     registeredEmail TEXT,
     registeredPhone TEXT,
+    ninNumber TEXT,
+    nationalIdFront TEXT,
+    nationalIdBack TEXT,
     passportPhoto TEXT,
     businessDocuments TEXT,
     status TEXT DEFAULT 'pending',
@@ -462,19 +465,19 @@ async function startServer() {
   });
 
   app.post("/api/business/verify", (req, res) => {
-    const { id, userId, registeredEmail, registeredPhone, passportPhoto, businessDocuments } = req.body;
+    const { id, userId, registeredEmail, registeredPhone, ninNumber, nationalIdFront, nationalIdBack, passportPhoto, businessDocuments } = req.body;
     const existing = db.prepare("SELECT * FROM business_verification WHERE userId = ?").get(userId);
     if (existing) {
       db.prepare(`
-        UPDATE business_verification SET registeredEmail = ?, registeredPhone = ?, passportPhoto = ?, businessDocuments = ?, status = 'pending', submittedAt = ?
+        UPDATE business_verification SET registeredEmail = ?, registeredPhone = ?, ninNumber = ?, nationalIdFront = ?, nationalIdBack = ?, passportPhoto = ?, businessDocuments = ?, status = 'pending', submittedAt = ?
         WHERE userId = ?
-      `).run(registeredEmail, registeredPhone, passportPhoto, businessDocuments, new Date().toISOString(), userId);
+      `).run(registeredEmail, registeredPhone, ninNumber, nationalIdFront, nationalIdBack, passportPhoto, businessDocuments, new Date().toISOString(), userId);
     } else {
       const stmt = db.prepare(`
-        INSERT INTO business_verification (id, userId, registeredEmail, registeredPhone, passportPhoto, businessDocuments, status, submittedAt)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+        INSERT INTO business_verification (id, userId, registeredEmail, registeredPhone, ninNumber, nationalIdFront, nationalIdBack, passportPhoto, businessDocuments, status, submittedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
       `);
-      stmt.run(id, userId, registeredEmail, registeredPhone, passportPhoto, businessDocuments, new Date().toISOString());
+      stmt.run(id, userId, registeredEmail, registeredPhone, ninNumber, nationalIdFront, nationalIdBack, passportPhoto, businessDocuments, new Date().toISOString());
     }
     res.json({ success: true });
   });
@@ -557,6 +560,11 @@ async function startServer() {
   app.delete("/api/products/:id", (req, res) => {
     db.prepare("DELETE FROM products WHERE id = ?").run(req.params.id);
     res.json({ success: true });
+  });
+
+  app.delete("/api/products", (req, res) => {
+    db.prepare("DELETE FROM products").run();
+    res.json({ success: true, message: 'All products deleted' });
   });
 
   app.get("/api/orders", (req, res) => {

@@ -1442,13 +1442,31 @@ useEffect(() => {
                             <p className="text-muted-foreground">Registered Phone</p>
                             <p className="font-medium">{v.registeredPhone || 'Not provided'}</p>
                           </div>
-                        </div>
-                        {v.passportPhoto && (
                           <div>
-                            <p className="text-muted-foreground text-sm mb-2">Passport Photo</p>
-                            <img src={v.passportPhoto} alt="Passport" className="h-32 w-24 object-cover rounded" />
+                            <p className="text-muted-foreground">NIN Number</p>
+                            <p className="font-medium">{v.ninNumber || 'Not provided'}</p>
                           </div>
-                        )}
+                        </div>
+                        <div className="flex gap-4">
+                          {v.nationalIdFront && (
+                            <div>
+                              <p className="text-muted-foreground text-sm mb-2">National ID - Front</p>
+                              <img src={v.nationalIdFront} alt="NID Front" className="h-32 w-24 object-cover rounded" />
+                            </div>
+                          )}
+                          {v.nationalIdBack && (
+                            <div>
+                              <p className="text-muted-foreground text-sm mb-2">National ID - Back</p>
+                              <img src={v.nationalIdBack} alt="NID Back" className="h-32 w-24 object-cover rounded" />
+                            </div>
+                          )}
+                          {v.passportPhoto && (
+                            <div>
+                              <p className="text-muted-foreground text-sm mb-2">Passport Photo</p>
+                              <img src={v.passportPhoto} alt="Passport" className="h-32 w-24 object-cover rounded" />
+                            </div>
+                          )}
+                        </div>
                         <div className="flex gap-2">
                           <Button className="flex-1" onClick={() => handleApprove(v.userId, true)}>
                             <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
@@ -1637,7 +1655,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   const [followedBusinesses, setFollowedBusinesses] = useState<User[]>([]);
   const [verificationStatus, setVerificationStatus] = useState<'pending' | 'approved' | 'denied' | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
-  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', passportPhoto: '' });
+  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
 
   useEffect(() => {
     if (user) {
@@ -1708,7 +1726,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   };
 
   const handleVerifySubmit = async () => {
-    if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.passportPhoto) {
+    if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.ninNumber || !verifyData.nationalIdFront || !verifyData.nationalIdBack || !verifyData.passportPhoto) {
       toast.error("Please fill in all fields");
       return;
     }
@@ -2053,10 +2071,10 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
   const { items, total, itemCount, updateQuantity, removeItem } = useCart();
   const { formatPrice } = useCurrency();
   const [showVerifyModal, setShowVerifyModal] = useState(false);
-  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', passportPhoto: '' });
+  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
 
   const handleVerifySubmit = async () => {
-    if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.passportPhoto) {
+    if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.ninNumber || !verifyData.nationalIdFront || !verifyData.nationalIdBack || !verifyData.passportPhoto) {
       toast.error("Please fill in all fields");
       return;
     }
@@ -2629,7 +2647,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [businessData, setBusinessData] = useState({ name: '', description: '' });
   const [isVerified, setIsVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
-  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', passportPhoto: '' });
+  const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
   const { formatPrice } = useCurrency();
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     name: '',
@@ -2930,7 +2948,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                 <Input value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} />
               </div>
               <div className="space-y-2">
-                <Label>Price ($)</Label>
+                <Label>Price (UGX)</Label>
                 <Input type="number" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: Number(e.target.value)})} />
               </div>
               <div className="space-y-2">
@@ -3103,6 +3121,76 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               />
             </div>
             <div className="space-y-2">
+              <Label>NIN Number</Label>
+              <Input 
+                placeholder="CMxxxxxxxxxxxxxx"
+                value={verifyData.ninNumber || ''}
+                onChange={e => setVerifyData({ ...verifyData, ninNumber: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>National ID - Front</Label>
+              <Input 
+                type="file"
+                accept="image/*"
+                className="hidden"
+                id="seller-nid-front"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 500000) {
+                      toast.error("Image too large. Please choose an image under 500KB.");
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setVerifyData({ ...verifyData, nationalIdFront: reader.result as string });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+              <div className="flex gap-2 items-center">
+                <Button variant="outline" size="sm" className="rounded-full" onClick={() => document.getElementById('seller-nid-front')?.click()}>
+                  <Camera className="mr-2 h-4 w-4" /> Upload Front
+                </Button>
+                {verifyData.nationalIdFront && (
+                  <img src={verifyData.nationalIdFront} alt="NID Front" className="h-10 w-10 object-cover rounded" />
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>National ID - Back</Label>
+              <Input 
+                type="file"
+                accept="image/*"
+                className="hidden"
+                id="seller-nid-back"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 500000) {
+                      toast.error("Image too large. Please choose an image under 500KB.");
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      setVerifyData({ ...verifyData, nationalIdBack: reader.result as string });
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+              <div className="flex gap-2 items-center">
+                <Button variant="outline" size="sm" className="rounded-full" onClick={() => document.getElementById('seller-nid-back')?.click()}>
+                  <Camera className="mr-2 h-4 w-4" /> Upload Back
+                </Button>
+                {verifyData.nationalIdBack && (
+                  <img src={verifyData.nationalIdBack} alt="NID Back" className="h-10 w-10 object-cover rounded" />
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label>Business Owner Passport Photo</Label>
               <Input 
                 type="file"
@@ -3135,7 +3223,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
             </div>
           </div>
           <Button className="w-full" onClick={async () => {
-            if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.passportPhoto) {
+            if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.ninNumber || !verifyData.nationalIdFront || !verifyData.nationalIdBack || !verifyData.passportPhoto) {
               toast.error("Please fill in all fields");
               return;
             }
