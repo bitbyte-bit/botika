@@ -1369,6 +1369,23 @@ useEffect(() => {
         </TabsContent>
 
         <TabsContent value="products" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-muted-foreground">{products.length} products</p>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="text-destructive border-destructive/50 hover:bg-destructive hover:text-destructive-foreground"
+              onClick={async () => {
+                if (confirm('Delete ALL products? This cannot be undone.')) {
+                  await api.delete('/products');
+                  fetchData();
+                  toast.success("All products deleted");
+                }
+              }}
+            >
+              Delete All Products
+            </Button>
+          </div>
           <Card className="border-none bg-paper shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
