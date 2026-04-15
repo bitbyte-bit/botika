@@ -1713,8 +1713,8 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 500000) {
-        toast.error("Image too large. Please choose an image under 500KB.");
+      if (file.size > 2500000) {
+        toast.error("Image too large. Please choose an image under 2.5MB.");
         return;
       }
       const reader = new FileReader();
@@ -1748,8 +1748,8 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   const handlePassportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 500000) {
-        toast.error("Image too large. Please choose an image under 500KB.");
+      if (file.size > 2500000) {
+        toast.error("Image too large. Please choose an image under 2.5MB.");
         return;
       }
       const reader = new FileReader();
@@ -1987,8 +1987,8 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          if (file.size > 500000) {
-                            toast.error("Image too large. Please choose an image under 500KB.");
+                          if (file.size > 2500000) {
+                            toast.error("Image too large. Please choose an image under 2.5MB.");
                             return;
                           }
                           const reader = new FileReader();
@@ -2095,8 +2095,8 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
   const handlePassportChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 500000) {
-        toast.error("Image too large. Please choose an image under 500KB.");
+      if (file.size > 2500000) {
+        toast.error("Image too large. Please choose an image under 2.5MB.");
         return;
       }
       const reader = new FileReader();
@@ -3138,8 +3138,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    if (file.size > 500000) {
-                      toast.error("Image too large. Please choose an image under 500KB.");
+                    if (file.size > 2500000) {
+                      toast.error("Image too large. Please choose an image under 2.5MB.");
                       return;
                     }
                     const reader = new FileReader();
@@ -3169,8 +3169,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    if (file.size > 500000) {
-                      toast.error("Image too large. Please choose an image under 500KB.");
+                    if (file.size > 2500000) {
+                      toast.error("Image too large. Please choose an image under 2.5MB.");
                       return;
                     }
                     const reader = new FileReader();
@@ -3200,8 +3200,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    if (file.size > 500000) {
-                      toast.error("Image too large. Please choose an image under 500KB.");
+                    if (file.size > 2500000) {
+                      toast.error("Image too large. Please choose an image under 2.5MB.");
                       return;
                     }
                     const reader = new FileReader();
@@ -3753,11 +3753,6 @@ const AppContent = () => {
     try {
       const prods = await api.get('/products?includeUnapproved=true');
       setProducts(prods);
-      
-      // Seed data if empty
-      if (prods.length === 0 && (user?.role === 'seller' || user?.role === 'admin')) {
-        seedProducts(user.uid);
-      }
     } catch (error) {
       console.error("Failed to fetch products", error);
     }
@@ -3765,7 +3760,7 @@ const AppContent = () => {
 
   useEffect(() => {
     fetchProducts();
-    const interval = setInterval(fetchProducts, 10000); // Poll every 10s
+    const interval = setInterval(fetchProducts, 10000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -3782,72 +3777,6 @@ const AppContent = () => {
       api.post('/users', { ...user, role: 'admin' });
     }
   }, [user]);
-
-  const seedProducts = async (sellerId: string) => {
-    const sellerName = user?.businessName || user?.displayName || 'Bikuumba Boutique';
-    const samples = [
-      {
-        id: crypto.randomUUID(),
-        name: "Hand-Woven Silk Scarf",
-        description: "Exquisite silk scarf hand-woven by artisans in the heart of Florence. Features a unique geometric pattern and natural dyes.",
-        price: 185,
-        category: "Accessories",
-        images: ["https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&q=80&w=800"],
-        stock: 12,
-        isAuthentic: true,
-        authenticationDetails: "Certified by the Italian Silk Guild. Serial #IT-8821.",
-        ratingAvg: 4.9,
-        reviewCount: 24,
-        sellerId,
-        sellerName,
-        createdAt: new Date().toISOString(),
-        visitCount: 0,
-        likeCount: 0,
-        isApproved: 0
-      },
-      {
-        id: crypto.randomUUID(),
-        name: "Minimalist Leather Tote",
-        description: "Full-grain vegetable-tanned leather tote with hand-stitched details. Designed for durability and timeless elegance.",
-        price: 420,
-        category: "Bags",
-        images: ["https://images.unsplash.com/photo-1544816153-12ad5d7133a2?auto=format&fit=crop&q=80&w=800"],
-        stock: 5,
-        isAuthentic: true,
-        authenticationDetails: "Handcrafted in Leon, Spain. Authenticity card included.",
-        ratingAvg: 4.8,
-        reviewCount: 15,
-        sellerId,
-        sellerName,
-        createdAt: new Date().toISOString(),
-        visitCount: 0,
-        likeCount: 0,
-        isApproved: 0
-      },
-      {
-        id: crypto.randomUUID(),
-        name: "Artisanal Ceramic Vase",
-        description: "One-of-a-kind ceramic vase with a reactive glaze finish. Each piece is hand-thrown on the wheel.",
-        price: 95,
-        category: "Home",
-        images: ["https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?auto=format&fit=crop&q=80&w=800"],
-        stock: 8,
-        isAuthentic: true,
-        authenticationDetails: "Signed by the artist. Studio pottery mark present.",
-        ratingAvg: 5.0,
-        reviewCount: 9,
-        sellerId,
-        sellerName,
-        createdAt: new Date().toISOString(),
-        visitCount: 0,
-        likeCount: 0,
-        isApproved: 0
-      }
-    ];
-    for (const s of samples) {
-      await api.post('/products', s);
-    }
-  };
 
   const handleVisitBoutique = async (product: Product) => {
     setView('inventory');
