@@ -2655,7 +2655,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       ]);
       setProducts(p.filter((prod: Product) => prod.sellerId === user.uid));
       setOrders(o.filter((order: Order) => order.sellerIds.includes(user.uid)));
-      setIsVerified(!v || v.status === 'approved');
+      setIsVerified(v && v.status === 'approved');
     } catch (error) {
       console.error("Failed to fetch seller data", error);
     }
