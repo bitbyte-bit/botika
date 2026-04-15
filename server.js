@@ -627,7 +627,7 @@ async function startServer() {
       ORDER BY createdAt DESC
     `).all(userId, userId);
     
-    const conversations: any[] = [];
+    const conversations = [];
     const seenIds = new Set();
     
     for (const msg of messages) {
