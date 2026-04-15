@@ -1716,6 +1716,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
       await api.post('/business/verify', {
         id: crypto.randomUUID(),
         userId: user?.uid,
+        businessDocuments: '',
         ...verifyData
       });
       setVerificationStatus('pending');
@@ -2063,6 +2064,7 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: strin
       await api.post('/business/verify', {
         id: crypto.randomUUID(),
         userId: user?.uid,
+        businessDocuments: '',
         ...verifyData
       });
       toast.success("Verification submitted. Please wait for approval.");
@@ -3138,11 +3140,12 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               return;
             }
             try {
-              await api.post('/business/verify', {
-                id: crypto.randomUUID(),
-                userId: user.uid,
-                ...verifyData
-              });
+await api.post('/business/verify', {
+        id: crypto.randomUUID(),
+        userId: user?.uid,
+        businessDocuments: '',
+        ...verifyData
+      });
               toast.success("Verification submitted. Please wait for admin approval.");
               setShowVerifyModal(false);
               fetchData();
