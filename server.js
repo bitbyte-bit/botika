@@ -511,10 +511,10 @@ async function startServer() {
     const { includeUnapproved } = req.query;
     let products;
     if (includeUnapproved === 'true') {
-      products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
+      products = db.prepare("SELECT DISTINCT * FROM products ORDER BY createdAt DESC").all();
     } else {
       products = db.prepare(`
-        SELECT p.* FROM products p
+        SELECT DISTINCT p.* FROM products p
         LEFT JOIN business_verification bv ON p.sellerId = bv.userId
         WHERE p.isApproved = 1 AND bv.status = 'approved'
         ORDER BY p.createdAt DESC
@@ -614,6 +614,40 @@ async function startServer() {
     
     const messages = db.prepare("SELECT * FROM messages WHERE receiverId = ? OR senderId = ? ORDER BY createdAt DESC").all(req.params.userId, req.params.userId);
     res.json(messages.map((m) => ({ ...m, read: !!m.read })));
+  });
+
+  app.get("/api/conversations/:userId", (req, res) => {
+    const userId = req.params.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized: userId required' });
+    }
+    
+    const messages = db.prepare(`
+      SELECT * FROM messages 
+      WHERE receiverId = ? OR senderId = ?
+      ORDER BY createdAt DESC
+    `).all(userId, userId);
+    
+    const conversations: any[] = [];
+    const seenIds = new Set();
+    
+    for (const msg of messages) {
+      const otherUserId = msg.senderId === userId ? msg.receiverId : msg.senderId;
+      if (!seenIds.has(otherUserId)) {
+        seenIds.add(otherUserId);
+        const otherUser = db.prepare("SELECT uid, displayName, photoURL FROM users WHERE uid = ?").get(otherUserId);
+        const unreadResult = db.prepare("SELECT COUNT(*) as count FROM messages WHERE senderId = ? AND receiverId = ? AND read = 0").get(otherUserId, userId);
+        conversations.push({
+          participantId: otherUserId,
+          participantName: otherUser?.displayName || 'Unknown',
+          participantPhoto: otherUser?.photoURL || '',
+          lastMessage: msg,
+          unreadCount: unreadResult?.count || 0
+        });
+      }
+    }
+    
+    res.json(conversations);
   });
 
   app.post("/api/messages", (req, res) => {

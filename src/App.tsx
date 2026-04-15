@@ -482,10 +482,19 @@ const BottomNav = ({ currentView, onNavigate, unreadCount = 0 }: { currentView: 
   );
 };
 
+interface Conversation {
+  participantId: string;
+  participantName: string;
+  participantPhoto: string;
+  lastMessage: Message;
+  unreadCount: number;
+}
+
 const InboxView = () => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<{users: User[], onlineUsers: string[]}>({ users: [], onlineUsers: [] });
@@ -558,12 +567,14 @@ const handleSearch = useCallback(async () => {
   const fetchInbox = async () => {
     if (!user) return;
     try {
-      const [msgs, notifs] = await Promise.all([
+      const [msgs, notifs, convs] = await Promise.all([
         api.get(`/messages/${user.uid}?currentUserId=${user.uid}`),
-        api.get(`/notifications/${user.uid}`)
+        api.get(`/notifications/${user.uid}`),
+        api.get(`/conversations/${user.uid}`)
       ]);
       setMessages(msgs);
       setNotifications(notifs);
+      setConversations(convs || []);
     } catch (error) {
       console.error("Failed to fetch inbox", error);
     }
@@ -956,7 +967,7 @@ const handleSearch = useCallback(async () => {
                       <p className={`text-sm ${msg.read ? 'font-medium' : 'font-bold'}`}>{msg.senderName}</p>
                       <span className="text-[10px] text-muted-foreground">{new Date(msg.createdAt).toLocaleDateString()}</span>
                     </div>
-                    <p className={`text-sm ${msg.read ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>{msg.content}</p>
+                    <p className={`text-sm ${msg.read ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>{(msg as any).isEncrypted && msg.receiverId === user?.uid ? decryptMessage(msg.content, generateEncryptionKey(user.uid, msg.senderId)) : msg.content}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -1232,7 +1243,9 @@ const AdminDashboard = () => {
         api.get('/business/verify-requests')
       ]);
       setUsers(u);
-      setProducts(p);
+      setProducts(p.filter((prod: Product, index: number, self: Product[]) => 
+        index === self.findIndex((t: Product) => t.id === prod.id)
+      ));
       setOrders(o);
       setVerificationRequests(v);
     } catch (error) {
@@ -1726,6 +1739,10 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   };
 
   const handleVerifySubmit = async () => {
+    if (!user) {
+      toast.error("Please sign in to verify your business");
+      return;
+    }
     if (!verifyData.registeredEmail || !verifyData.registeredPhone || !verifyData.ninNumber || !verifyData.nationalIdFront || !verifyData.nationalIdBack || !verifyData.passportPhoto) {
       toast.error("Please fill in all fields");
       return;
@@ -1733,15 +1750,17 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
     try {
       await api.post('/business/verify', {
         id: crypto.randomUUID(),
-        userId: user?.uid,
+        userId: user.uid,
         businessDocuments: '',
         ...verifyData
       });
       setVerificationStatus('pending');
       setShowVerifyModal(false);
       toast.success("Verification submitted. Please wait for approval.");
-    } catch (error) {
-      toast.error("Failed to submit verification");
+    } catch (error: any) {
+      const message = error.message || error.response?.data?.error || 'Failed to submit verification';
+      const match = message.match(/API error: \d+ - (.+)/);
+      toast.error(match ? match[1] : message);
     }
   };
 
@@ -3752,7 +3771,10 @@ const AppContent = () => {
   const fetchProducts = async () => {
     try {
       const prods = await api.get('/products?includeUnapproved=true');
-      setProducts(prods);
+      const uniqueProducts = prods.filter((p: Product, index: number, self: Product[]) => 
+        index === self.findIndex((t: Product) => t.id === p.id)
+      );
+      setProducts(uniqueProducts);
     } catch (error) {
       console.error("Failed to fetch products", error);
     }
