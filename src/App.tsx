@@ -104,8 +104,6 @@ const CartContext = createContext<{
 } | null>(null);
 
 const CurrencyContext = createContext<{
-  currency: 'USD' | 'UGX';
-  setCurrency: (c: 'USD' | 'UGX') => void;
   formatPrice: (price: number) => string;
 } | null>(null);
 
@@ -236,15 +234,12 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currency, setCurrency] = useState<'USD' | 'UGX'>('UGX');
-  const rate = 3700;
-
   const formatPrice = (price: number) => {
-    return `UGX ${(price * rate).toLocaleString()}`;
+    return `UGX ${price.toLocaleString()}`;
   };
 
   return (
-    <CurrencyContext.Provider value={{ currency, setCurrency, formatPrice }}>
+    <CurrencyContext.Provider value={{ formatPrice }}>
       {children}
     </CurrencyContext.Provider>
   );
@@ -3749,7 +3744,7 @@ const AppContent = () => {
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const { user, login } = useAuth();
   const { addItem } = useCart();
-  const { currency, setCurrency, formatPrice } = useCurrency();
+  const { formatPrice } = useCurrency();
 
   const fetchUnreadCount = useCallback(async () => {
     if (!user) {
@@ -3844,25 +3839,6 @@ const AppContent = () => {
                 </div>
                 <div className="space-y-6">
                   <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Settings</h4>
-                  <div className="space-y-4">
-                    <p className="text-xs text-paper/60 uppercase tracking-widest">Currency</p>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant={currency === 'USD' ? 'default' : 'outline'} 
-                        className={`flex-1 rounded-xl h-12 ${currency === 'USD' ? 'bg-paper text-ink' : 'border-paper/20 text-paper'}`}
-                        onClick={() => setCurrency('USD')}
-                      >
-                        USD ($)
-                      </Button>
-                      <Button 
-                        variant={currency === 'UGX' ? 'default' : 'outline'} 
-                        className={`flex-1 rounded-xl h-12 ${currency === 'UGX' ? 'bg-paper text-ink' : 'border-paper/20 text-paper'}`}
-                        onClick={() => setCurrency('UGX')}
-                      >
-                        UGX (Shs)
-                      </Button>
-                    </div>
-                  </div>
                 </div>
                 <div className="space-y-6 pt-12 border-t border-paper/10">
                   <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Newsletter</h4>
