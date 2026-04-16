@@ -520,7 +520,14 @@ async function startServer() {
         ORDER BY p.createdAt DESC
       `).all();
     }
-    res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
+    res.json(products.map((p) => {
+      try {
+        const images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
+        return { ...p, images: Array.isArray(images) ? images : [] };
+      } catch (e) {
+        return { ...p, images: [] };
+      }
+    }));
   });
 
   app.get("/api/products/pending", (req, res) => {
@@ -543,16 +550,28 @@ async function startServer() {
       ORDER BY (COALESCE(p.reviewCount, 0) * 2 + COALESCE(p.likeCount, 0) + COALESCE(p.visitCount, 0)) DESC
       LIMIT 20
     `).all();
-    res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
+    res.json(products.map((p) => {
+      try {
+        const images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
+        return { ...p, images: Array.isArray(images) ? images : [] };
+      } catch (e) {
+        return { ...p, images: [] };
+      }
+    }));
   });
 
   app.post("/api/products", (req, res) => {
     const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition } = req.body;
+    
+    // Check if seller is verified (role = 'seller') and auto-approve their products
+    const seller = db.prepare("SELECT role FROM users WHERE uid = ?").get(sellerId);
+    const autoApproved = (seller?.role === 'seller') ? 1 : (isApproved ?? 0);
+    
     const stmt = db.prepare(`
       INSERT OR REPLACE INTO products (id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved ?? 0, condition || 'new');
+    stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, autoApproved, condition || 'new');
     res.json({ success: true });
   });
 
