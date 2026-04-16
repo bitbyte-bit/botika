@@ -182,6 +182,15 @@ db.exec(`
     reviewedBy TEXT,
     denialReason TEXT
   );
+
+  CREATE INDEX IF NOT EXISTS idx_products_seller ON products(sellerId);
+  CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+  CREATE INDEX IF NOT EXISTS idx_products_approved ON products(isApproved);
+  CREATE INDEX IF NOT EXISTS idx_products_created ON products(createdAt);
+  CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(senderId);
+  CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiverId);
+  CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(userId);
+  CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customerId);
 `);
 
 const masterAdminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba26@gmail.com');
@@ -326,6 +335,19 @@ async function startServer() {
   });
 
   app.get("/api/users", (req, res) => {
+    const { limit, offset, all } = req.query;
+    let limitNum;
+    if (all === 'true') {
+      limitNum = 10000;
+    } else {
+      limitNum = Math.min(parseInt(limit as string) || 50, 100);
+    }
+    const offsetNum = parseInt(offset as string) || 0;
+    const users = db.prepare("SELECT * FROM users LIMIT ? OFFSET ?").all(limitNum, offsetNum);
+    res.json(users);
+  });
+
+  app.get("/api/users/all", (req, res) => {
     const users = db.prepare("SELECT * FROM users").all();
     res.json(users);
   });
@@ -498,7 +520,20 @@ async function startServer() {
   });
 
   app.get("/api/business/verify-requests", (req, res) => {
-    const requests = db.prepare("SELECT * FROM business_verification WHERE status = 'pending' ORDER BY submittedAt DESC").all();
+    const { status } = req.query;
+    let query = "SELECT * FROM business_verification";
+    const params = [];
+    if (status && status !== 'all') {
+      query += " WHERE status = ?";
+      params.push(status);
+    }
+    query += " ORDER BY submittedAt DESC";
+    const requests = db.prepare(query).all(...params);
+    res.json(requests);
+  });
+
+  app.get("/api/business/verify-requests/all", (req, res) => {
+    const requests = db.prepare("SELECT * FROM business_verification ORDER BY submittedAt DESC").all();
     res.json(requests);
   });
 
@@ -518,16 +553,24 @@ async function startServer() {
   });
 
   app.get("/api/products", (req, res) => {
-    const { includeUnapproved } = req.query;
+    const { includeUnapproved, limit, offset, all } = req.query;
+    let limitNum;
+    if (all === 'true') {
+      limitNum = 10000;
+    } else {
+      limitNum = Math.min(parseInt(limit as string) || 50, 100);
+    }
+    const offsetNum = parseInt(offset as string) || 0;
     let products;
     if (includeUnapproved === 'true') {
-      products = db.prepare("SELECT DISTINCT * FROM products ORDER BY createdAt DESC").all();
+      products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC LIMIT ? OFFSET ?").all(limitNum, offsetNum);
     } else {
       products = db.prepare(`
-        SELECT DISTINCT p.* FROM products p
+        SELECT p.* FROM products p
         WHERE p.isApproved = 1
         ORDER BY p.createdAt DESC
-      `).all();
+        LIMIT ? OFFSET ?
+      `).all(limitNum, offsetNum);
     }
     res.json(products.map((p) => {
       try {
@@ -539,17 +582,34 @@ async function startServer() {
     }));
   });
 
+  app.get("/api/products/all", (req, res) => {
+    const products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC").all();
+    res.json(products.map((p) => {
+      try {
+        const images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
+        return { ...p, images: Array.isArray(images) ? images : [] };
+      } catch (e) {
+        return { ...p, images: [] };
+      }
+    }));
+  });
+
   app.get("/api/products/pending", (req, res) => {
-    const products = db.prepare("SELECT * FROM products WHERE isApproved = 0 ORDER BY createdAt DESC").all();
+    const { limit, offset } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 50, 100);
+    const offsetNum = parseInt(offset as string) || 0;
+    const products = db.prepare("SELECT * FROM products WHERE isApproved = 0 ORDER BY createdAt DESC LIMIT ? OFFSET ?").all(limitNum, offsetNum);
     res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
   });
 
   app.get('/api/categories', (req, res) => {
-    const categories = db.prepare('SELECT DISTINCT category FROM products WHERE isApproved = 1 AND category IS NOT NULL AND category != ?').all('');
+    const categories = db.prepare('SELECT DISTINCT category FROM products WHERE isApproved = 1 AND category IS NOT NULL AND category != ? ORDER BY category').all('');
     res.json(categories.map((c) => c.category).filter(Boolean));
   });
 
   app.get('/api/best-sellers', (req, res) => {
+    const { limit } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 20, 50);
     const products = db.prepare(`
       SELECT p.*, u.businessName as sellerName, u.photoURL as sellerPhoto,
         (SELECT COUNT(*) FROM reviews r WHERE r.productId = p.id) as reviewCount
@@ -557,8 +617,8 @@ async function startServer() {
       JOIN users u ON p.sellerId = u.uid
       WHERE p.isApproved = 1
       ORDER BY (COALESCE(p.reviewCount, 0) * 2 + COALESCE(p.likeCount, 0) + COALESCE(p.visitCount, 0)) DESC
-      LIMIT 20
-    `).all();
+      LIMIT ?
+    `).all(limitNum);
     res.json(products.map((p) => {
       try {
         const images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
@@ -601,7 +661,15 @@ async function startServer() {
   });
 
   app.get("/api/orders", (req, res) => {
-    const orders = db.prepare("SELECT * FROM orders ORDER BY createdAt DESC").all();
+    const { limit, offset, all } = req.query;
+    let limitNum;
+    if (all === 'true') {
+      limitNum = 10000;
+    } else {
+      limitNum = Math.min(parseInt(limit as string) || 100, 500);
+    }
+    const offsetNum = parseInt(offset as string) || 0;
+    const orders = db.prepare("SELECT * FROM orders ORDER BY createdAt DESC LIMIT ? OFFSET ?").all(limitNum, offsetNum);
     res.json(orders.map((o) => ({ 
       ...o, 
       items: JSON.parse(o.items || '[]'),

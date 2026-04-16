@@ -538,7 +538,7 @@ const handleSearch = useCallback(async () => {
     setSearching(true);
     try {
       const [allUsers, onlineUsers] = await Promise.all([
-        api.get('/users'),
+        api.get('/users?all=true'),
         api.get('/users/online')
       ]);
       
@@ -589,7 +589,7 @@ const handleSearch = useCallback(async () => {
 
   useEffect(() => {
     fetchInbox();
-    const interval = setInterval(fetchInbox, 5000);
+    const interval = setInterval(fetchInbox, 10000);
     
     const handleForegroundMessage = (payload: any) => {
       if (payload.data?.type === 'message') {
@@ -615,7 +615,7 @@ const handleSearch = useCallback(async () => {
     const interval = setInterval(async () => {
       const msgs = await api.get(`/messages/conversation/${user.uid}/${selectedChat.uid}?currentUserId=${user.uid}`);
       setChatMessages(msgs);
-    }, 3000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [user, selectedChat]);
 
@@ -624,7 +624,7 @@ const handleSearch = useCallback(async () => {
       api.post('/users/status', { userId: user.uid, isOnline: true });
       const interval = setInterval(() => {
         api.post('/users/status', { userId: user.uid, isOnline: true });
-      }, 60000);
+      }, 120000);
       return () => {
         api.post('/users/status', { userId: user.uid, isOnline: false });
         clearInterval(interval);
@@ -1100,10 +1100,10 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
     try {
       const [s, p] = await Promise.all([
         api.get(`/users/${sellerId}`),
-        api.get('/products?includeUnapproved=true')
+        api.get('/products?includeUnapproved=true&all=true')
       ]);
       setSeller(s);
-      setProducts(p.filter((prod: Product) => prod.sellerId === sellerId && prod.isApproved !== 0));
+      setProducts((p || []).filter((prod: Product) => prod.sellerId === sellerId && prod.isApproved !== 0));
 
       if (user) {
         const follows = await api.get(`/follows/${user.uid}`);
@@ -1344,17 +1344,17 @@ const AdminDashboard = () => {
   const fetchData = async () => {
     try {
       const [u, p, o, v] = await Promise.all([
-        api.get('/users'),
-        api.get('/products?includeUnapproved=true'),
-        api.get('/orders'),
+        api.get('/users?all=true'),
+        api.get('/products?includeUnapproved=true&all=true'),
+        api.get('/orders?all=true'),
         api.get('/business/verify-requests')
       ]);
-      setUsers(u);
-      setProducts(p.filter((prod: Product, index: number, self: Product[]) => 
+      setUsers(u || []);
+      setProducts((p || []).filter((prod: Product, index: number, self: Product[]) => 
         index === self.findIndex((t: Product) => t.id === prod.id)
       ));
-      setOrders(o);
-      setVerificationRequests(v);
+      setOrders(o || []);
+      setVerificationRequests(v || []);
     } catch (error) {
       console.error("Failed to fetch admin data", error);
     }
@@ -2734,98 +2734,107 @@ const Hero = () => (
 const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: Product[], onProductClick: (p: Product) => void, onBusinessClick: (sellerId: string) => void }) => {
   const { addItem } = useCart();
   const { formatPrice } = useCurrency();
+  const [visibleCount, setVisibleCount] = useState(20);
+  const displayProducts = products.slice(0, visibleCount);
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-8">
-      {products.map((product, idx) => (
-        <motion.div
-          key={product.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: idx * 0.1 }}
-          className="group cursor-pointer"
-        >
-          <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-secondary">
-            <img 
-              src={product.images[0]} 
-              alt={product.name} 
-              className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-110"
-              referrerPolicy="no-referrer"
-              onClick={() => onProductClick(product)}
-            />
-            {product.isAuthentic && (
-              <div className="absolute top-2 left-2 md:top-4 md:left-4">
-                <Badge className="bg-paper/90 text-ink backdrop-blur-sm border-none flex items-center gap-1 text-[10px] md:text-xs">
-                  <ShieldCheck className="h-3 w-3" /> Authentic
-                </Badge>
-              </div>
-            )}
-            {product.condition === 'used' && (
-              <div className="absolute top-2 left-2 md:top-4 md:left-4" style={{ marginTop: product.isAuthentic ? '2.5rem' : '0' }}>
-                <Badge className="bg-amber-600 text-white flex items-center gap-1 text-[10px] md:text-xs">
-                  Used
-                </Badge>
-              </div>
-            )}
-            {product.discount && product.discount > 0 && (
-              <div className='absolute top-2 right-2 md:top-4'>
-                <Badge className='bg-red-600 text-white'>
-                  -{product.discount}%
-                </Badge>
-              </div>
-            )}
-            <div className='absolute top-2 right-2 md:top-4 md:right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity'>
-              <Button
-                size="icon" 
-                className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-paper text-ink hover:bg-accent hover:text-white shadow-lg"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  addItem(product);
-                }}
-              >
-                <Plus className="h-4 w-4 md:h-5 md:w-5" />
-              </Button>
-            </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4 md:p-6 pointer-events-none">
-              <Button 
-                className="w-full bg-paper text-ink hover:bg-paper/90 rounded-full pointer-events-auto text-xs md:text-sm h-8 md:h-10"
+    <>
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-8">
+        {displayProducts.map((product) => (
+          <div
+            key={product.id}
+            className="group cursor-pointer"
+          >
+            <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-secondary">
+              <img 
+                src={product.images[0]} 
+                alt={product.name} 
+                className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-110"
+                referrerPolicy="no-referrer"
+                loading="lazy"
                 onClick={() => onProductClick(product)}
-              >
-                Quick View
-              </Button>
-            </div>
-          </div>
-          <div className="mt-3 md:mt-4 space-y-1">
-            <div className="flex flex-col md:flex-row md:justify-between md:items-start" onClick={() => onProductClick(product)}>
-              <h3 className="font-serif text-lg md:text-xl line-clamp-1">{product.name}</h3>
-              <div className="flex flex-col items-end">
-                {product.discount && product.discount > 0 ? (
-                  <>
-                    <span className="font-medium text-sm md:text-base">{formatPrice(product.price * (1 - product.discount / 100))}</span>
-                    <span className="text-[10px] md:text-xs text-muted-foreground line-through">{formatPrice(product.price)}</span>
-                  </>
-                ) : (
-                  <span className="font-medium text-sm md:text-base">{formatPrice(product.price)}</span>
-                )}
+              />
+              {product.isAuthentic && (
+                <div className="absolute top-2 left-2 md:top-4 md:left-4">
+                  <Badge className="bg-paper/90 text-ink backdrop-blur-sm border-none flex items-center gap-1 text-[10px] md:text-xs">
+                    <ShieldCheck className="h-3 w-3" /> Authentic
+                  </Badge>
+                </div>
+              )}
+              {product.condition === 'used' && (
+                <div className="absolute top-2 left-2 md:top-4 md:left-4" style={{ marginTop: product.isAuthentic ? '2.5rem' : '0' }}>
+                  <Badge className="bg-amber-600 text-white flex items-center gap-1 text-[10px] md:text-xs">
+                    Used
+                  </Badge>
+                </div>
+              )}
+              {product.discount && product.discount > 0 && (
+                <div className='absolute top-2 right-2 md:top-4'>
+                  <Badge className='bg-red-600 text-white'>
+                    -{product.discount}%
+                  </Badge>
+                </div>
+              )}
+              <div className='absolute top-2 right-2 md:top-4 md:right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity'>
+                <Button
+                  size="icon" 
+                  className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-paper text-ink hover:bg-accent hover:text-white shadow-lg"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    addItem(product);
+                  }}
+                >
+                  <Plus className="h-4 w-4 md:h-5 md:w-5" />
+                </Button>
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4 md:p-6 pointer-events-none">
+                <Button 
+                  className="w-full bg-paper text-ink hover:bg-paper/90 rounded-full pointer-events-auto text-xs md:text-sm h-8 md:h-10"
+                  onClick={() => onProductClick(product)}
+                >
+                  Quick View
+                </Button>
               </div>
             </div>
-            <div className="flex justify-between items-center">
-              <button 
-                onClick={(e) => { e.stopPropagation(); onBusinessClick(product.sellerId); }}
-                className="text-[10px] md:text-xs text-accent hover:underline font-medium"
-              >
-                {product.sellerName || 'Boutique Seller'}
-              </button>
-              <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-1">{product.category}</p>
-            </div>
-            <div className="flex items-center gap-1 text-[10px] md:text-xs text-amber-600">
-              <Star className="h-3 w-3 fill-current" />
-              <span>{product.ratingAvg} ({product.reviewCount})</span>
+            <div className="mt-3 md:mt-4 space-y-1">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-start" onClick={() => onProductClick(product)}>
+                <h3 className="font-serif text-lg md:text-xl line-clamp-1">{product.name}</h3>
+                <div className="flex flex-col items-end">
+                  {product.discount && product.discount > 0 ? (
+                    <>
+                      <span className="font-medium text-sm md:text-base">{formatPrice(product.price * (1 - product.discount / 100))}</span>
+                      <span className="text-[10px] md:text-xs text-muted-foreground line-through">{formatPrice(product.price)}</span>
+                    </>
+                  ) : (
+                    <span className="font-medium text-sm md:text-base">{formatPrice(product.price)}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onBusinessClick(product.sellerId); }}
+                  className="text-[10px] md:text-xs text-accent hover:underline font-medium"
+                >
+                  {product.sellerName || 'Boutique Seller'}
+                </button>
+                <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-1">{product.category}</p>
+              </div>
+              <div className="flex items-center gap-1 text-[10px] md:text-xs text-amber-600">
+                <Star className="h-3 w-3 fill-current" />
+                <span>{product.ratingAvg} ({product.reviewCount})</span>
+              </div>
             </div>
           </div>
-        </motion.div>
-      ))}
-    </div>
+        ))}
+      </div>
+      {visibleCount < products.length && (
+        <div className="flex justify-center pt-8">
+          <Button variant="outline" onClick={() => setVisibleCount(v => v + 20)}>
+            Load More ({products.length - visibleCount} remaining)
+          </Button>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -3108,12 +3117,12 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     if (user.role === 'customer') return;
     try {
       const [p, o, v] = await Promise.all([
-        api.get('/products?includeUnapproved=true'),
-        api.get('/orders'),
+        api.get('/products?includeUnapproved=true&all=true'),
+        api.get('/orders?all=true'),
         user.uid ? api.get(`/business/verify/${user.uid}`) : Promise.resolve(null)
       ]);
-      setProducts(p.filter((prod: Product) => prod.sellerId === user.uid));
-      setOrders(o.filter((order: Order) => order.sellerIds.includes(user.uid)));
+      setProducts((p || []).filter((prod: Product) => prod.sellerId === user.uid));
+      setOrders((o || []).filter((order: Order) => order.sellerIds.includes(user.uid)));
       setIsVerified(v && v.status === 'approved');
     } catch (error) {
       console.error("Failed to fetch seller data", error);
@@ -3946,11 +3955,11 @@ const OrdersView = ({ user }: { user: User }) => {
 
   const fetchOrders = async () => {
     try {
-      const data = await api.get('/orders');
+      const data = await api.get('/orders?all=true');
       if (user.role === 'seller') {
-        setOrders(data.filter((o: Order) => o.sellerIds.includes(user.uid)));
+        setOrders((data || []).filter((o: Order) => o.sellerIds.includes(user.uid)));
       } else {
-        setOrders(data.filter((o: Order) => o.customerId === user.uid));
+        setOrders((data || []).filter((o: Order) => o.customerId === user.uid));
       }
     } catch (error) {
       console.error('Failed to fetch orders', error);
@@ -4743,13 +4752,13 @@ const AppContent = () => {
 
   useEffect(() => {
     fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 15000);
+    const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
 
   const fetchProducts = async () => {
     try {
-      const prods = await api.get('/products?includeUnapproved=true') || [];
+      const prods = await api.get('/products?includeUnapproved=true&all=true') || [];
       const uniqueProducts = prods.filter((p: Product, index: number, self: Product[]) => 
         index === self.findIndex((t: Product) => t.id === p.id)
       );
@@ -4762,7 +4771,7 @@ const AppContent = () => {
 
   const fetchBestSellers = async () => {
     try {
-      const best = await api.get('/best-sellers');
+      const best = await api.get('/best-sellers?limit=50');
       setBestSellers(best || []);
     } catch (error) {
       console.error("Failed to fetch best sellers", error);
@@ -4775,7 +4784,7 @@ const AppContent = () => {
     const interval = setInterval(() => {
       fetchProducts();
       fetchBestSellers();
-    }, 10000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
