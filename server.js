@@ -183,6 +183,19 @@ db.exec(`
     denialReason TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS announcements (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    theme TEXT DEFAULT 'accent',
+    fontSize TEXT DEFAULT 'text-sm',
+    padding TEXT DEFAULT '8px 16px',
+    borderRadius TEXT DEFAULT '0px',
+    duration INTEGER DEFAULT 60,
+    closable INTEGER DEFAULT 1,
+    createdAt TEXT,
+    expiresAt TEXT
+  );
+
   CREATE INDEX IF NOT EXISTS idx_products_seller ON products(sellerId);
   CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
   CREATE INDEX IF NOT EXISTS idx_products_approved ON products(isApproved);
@@ -535,6 +548,40 @@ async function startServer() {
   app.get("/api/business/verify-requests/all", (req, res) => {
     const requests = db.prepare("SELECT * FROM business_verification ORDER BY submittedAt DESC").all();
     res.json(requests);
+  });
+
+  // Announcement endpoints
+  app.get("/api/announcements/active", (req, res) => {
+    const now = new Date().toISOString();
+    const announcements = db.prepare(`
+      SELECT * FROM announcements 
+      WHERE (expiresAt IS NULL OR expiresAt > ?)
+      ORDER BY createdAt DESC
+    `).all(now);
+    res.json(announcements);
+  });
+
+  app.post("/api/announcements", (req, res) => {
+    const { id, text, theme, fontSize, padding, borderRadius, duration, closable } = req.body;
+    const now = new Date().toISOString();
+    const expiresAt = duration > 0 ? new Date(Date.now() + duration * 60 * 1000).toISOString() : null;
+    
+    db.prepare(`
+      INSERT OR REPLACE INTO announcements (id, text, theme, fontSize, padding, borderRadius, duration, closable, createdAt, expiresAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, text, theme || 'accent', fontSize || 'text-sm', padding || '8px 16px', borderRadius || '0px', duration || 60, closable ? 1 : 0, now, expiresAt);
+    
+    res.json({ success: true });
+  });
+
+  app.delete("/api/announcements/:id", (req, res) => {
+    db.prepare("DELETE FROM announcements WHERE id = ?").run(req.params.id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/announcements", (req, res) => {
+    const announcements = db.prepare("SELECT * FROM announcements ORDER BY createdAt DESC").all();
+    res.json(announcements);
   });
 
   app.post("/api/business/approve", (req, res) => {

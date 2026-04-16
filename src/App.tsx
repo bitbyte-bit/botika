@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { 
   ShoppingBag, 
   Search, 
@@ -50,7 +50,19 @@ import {
   ThumbsUp,
   ThumbsDown,
   XCircle,
-  Ban
+  Ban,
+  Bell,
+  Shirt,
+  Watch,
+  Gem,
+  ShoppingCart,
+  Crown,
+  Briefcase,
+  Scissors,
+  Diamond,
+  Palette,
+  Baby,
+  Footprints
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -498,7 +510,6 @@ interface Conversation {
 
 const InboxView = ({ onChatOpen, onChatClose }: { onChatOpen?: () => void; onChatClose?: () => void }) => {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -508,25 +519,18 @@ const InboxView = ({ onChatOpen, onChatClose }: { onChatOpen?: () => void; onCha
   const [selectedChat, setSelectedChat] = useState<User | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [attachments, setAttachments] = useState<File[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [swipeAction, setSwipeAction] = useState<{ messageId: string; action: 'reply' | 'delete' } | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  const handleSwipe = (msgId: string, direction: 'left' | 'right') => {
-    if (direction === 'left') {
-      const msg = chatMessages.find(m => m.id === msgId);
-      if (msg) setReplyTo(msg);
-    } else {
-      setSwipeAction({ messageId: msgId, action: 'delete' });
-    }
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const confirmDelete = async (msgId: string) => {
     if (!user) return;
     await api.delete(`/messages/${msgId}?currentUserId=${user.uid}`);
     setChatMessages(prev => prev.filter(m => m.id !== msgId));
-    setSwipeAction(null);
   };
 
 const handleSearch = useCallback(async () => {
@@ -574,12 +578,10 @@ const handleSearch = useCallback(async () => {
   const fetchInbox = async () => {
     if (!user) return;
     try {
-      const [msgs, notifs, convs] = await Promise.all([
-        api.get(`/messages/${user.uid}?currentUserId=${user.uid}`),
+      const [notifs, convs] = await Promise.all([
         api.get(`/notifications/${user.uid}`),
         api.get(`/conversations/${user.uid}`)
       ]);
-      setMessages(msgs);
       setNotifications(notifs);
       setConversations(convs || []);
     } catch (error) {
@@ -598,9 +600,8 @@ const handleSearch = useCallback(async () => {
           (async () => {
             const msgs = await api.get(`/messages/conversation/${user?.uid}/${selectedChat.uid}?currentUserId=${user?.uid}`);
             setChatMessages(msgs);
+            scrollToBottom();
           })();
-        } else {
-          toast.info(`New message from ${payload.notification?.title || 'someone'}`);
         }
       }
     };
@@ -638,6 +639,7 @@ const handleSearch = useCallback(async () => {
     if (user) {
       const msgs = await api.get(`/messages/conversation/${user.uid}/${chatUser.uid}?currentUserId=${user.uid}`);
       setChatMessages(msgs);
+      setTimeout(scrollToBottom, 100);
       msgs.filter((m: Message) => m.receiverId === user.uid && !m.read).forEach((m: Message) => {
         api.patch(`/messages/${m.id}/read`, { currentUserId: user.uid });
         api.post('/messages/receipts', {
@@ -679,77 +681,9 @@ const handleSearch = useCallback(async () => {
     
     setChatMessages(prev => [...prev, { ...msg, content: newMessage, isEncrypted: false }]);
     setNewMessage('');
-    
-    const tokenEntry = await api.get(`/users/${selectedChat.uid}`);
-    if (tokenEntry) {
-      await api.post('/notifications/send', {
-        userId: selectedChat.uid,
-        title: `New message from ${user.displayName}`,
-        body: newMessage.substring(0, 50),
-        data: { type: 'message', senderId: user.uid }
-      });
-    }
+    scrollToBottom();
   };
 
-  const sendAttachment = async (file: File) => {
-    if (!user || !selectedChat) return;
-    
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const msgId = crypto.randomUUID();
-      const msg: Message = {
-        id: msgId,
-        senderId: user.uid,
-        senderName: user.displayName,
-        receiverId: selectedChat.uid,
-        content: file.name,
-        createdAt: new Date().toISOString(),
-        type: file.type.startsWith('image') ? 'image' : 'file',
-        read: false,
-        attachment: reader.result as string
-      };
-      
-      await api.post('/messages', msg);
-      await api.post('/messages/attachments', {
-        id: crypto.randomUUID(),
-        messageId: msgId,
-        fileName: file.name,
-        fileType: file.type,
-        fileUrl: reader.result,
-        createdAt: new Date().toISOString()
-      });
-      
-      setChatMessages(prev => [...prev, msg]);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const deleteMessage = async (msgId: string) => {
-    if (!user) return;
-    await api.delete(`/messages/${msgId}?currentUserId=${user.uid}`);
-    setChatMessages(prev => prev.filter(m => m.id !== msgId));
-  };
-
-  const markMessageAsRead = async (msgId: string) => {
-    if (!user) return;
-    try {
-      await api.patch(`/messages/${msgId}/read`, { currentUserId: user.uid });
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, read: true } : m));
-    } catch (error) {
-      console.error("Failed to mark message as read", error);
-    }
-  };
-
-  const markNotificationAsRead = async (notifId: string) => {
-    try {
-      await api.patch(`/notifications/${notifId}/read`);
-      setNotifications(prev => prev.map(n => n.id === notifId ? { ...n, read: true } : n));
-    } catch (error) {
-      console.error("Failed to mark notification as read", error);
-    }
-  };
-
-  const unreadMessagesCount = messages.filter(m => !m.read).length;
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   if (!user) return (
@@ -759,150 +693,251 @@ const handleSearch = useCallback(async () => {
     </div>
   );
 
-  if (selectedChat) {
-    return (
-      <div className="container mx-auto px-4 py-4 h-screen flex flex-col">
-        <div className="flex items-center gap-4 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => { setSelectedChat(null); onChatClose?.(); }}>
-            <ChevronRight className="h-5 w-5 rotate-180" />
-          </Button>
-          <Avatar className="h-10 w-10">
-            <AvatarImage src={selectedChat.photoURL || undefined} />
-            <AvatarFallback>{selectedChat.displayName[0]}</AvatarFallback>
-          </Avatar>
-          <div>
-            <p className="font-medium">{selectedChat.displayName}</p>
-            <p className="text-xs text-muted-foreground">Tap for info</p>
+  return (
+    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-6rem)] flex">
+      {/* Left Sidebar - Conversations List */}
+      <div className={`${selectedChat ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 flex-col border-r bg-paper`}>
+        <div className="p-4 border-b space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl serif">Chats</h2>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="icon" onClick={() => setSearchOpen(true)}>
+                <Search className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setShowNotifications(!showNotifications)} className="relative">
+                <Bell className="h-4 w-4" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-4 flex items-center justify-center px-1">
+                    {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                  </span>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
-        
-        <ScrollArea className="flex-1 mb-4">
-          <div className="space-y-4 p-4">
-            {chatMessages.map((msg) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
-              >
-                {msg.senderId !== user.uid && (
-                  <Avatar className="h-8 w-8 mr-2 self-end">
-                    <AvatarImage src={selectedChat?.photoURL} />
-                    <AvatarFallback>{selectedChat?.displayName?.[0]}</AvatarFallback>
-                  </Avatar>
-                )}
-                <div 
-                  className={`max-w-[70%] p-3 rounded-2xl touch-pan-y ${
-                    msg.senderId === user.uid 
-                      ? 'bg-accent text-accent-foreground' 
-                      : 'bg-secondary'
-                  }`}
-                  onTouchStart={(e) => {
-                    const touch = e.touches[0];
-                    (window as any).__touchStartX = touch.clientX;
-                  }}
-                  onTouchEnd={(e) => {
-                    const touch = e.changedTouches[0];
-                    const startX = (window as any).__touchStartX;
-                    const diff = touch.clientX - startX;
-                    if (Math.abs(diff) > 50) {
-                      handleSwipe(msg.id, diff > 0 ? 'right' : 'left');
+
+        {showNotifications ? (
+          <ScrollArea className="flex-1">
+            <div className="p-4 space-y-2">
+              {notifications.length === 0 ? (
+                <p className="text-center py-8 text-muted-foreground text-sm">No notifications</p>
+              ) : (
+                notifications.map(notif => (
+                  <div 
+                    key={notif.id} 
+                    className={`p-3 rounded-lg cursor-pointer ${notif.read ? 'bg-paper' : 'bg-accent/5'}`}
+                    onClick={() => api.patch(`/notifications/${notif.id}/read`)}
+                  >
+                    <p className={`text-sm ${notif.read ? 'font-medium' : 'font-bold'}`}>{notif.title}</p>
+                    <p className="text-xs text-muted-foreground">{notif.content}</p>
+                    <span className="text-[10px] text-muted-foreground">{new Date(notif.createdAt).toLocaleDateString()}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        ) : (
+          <ScrollArea className="flex-1">
+            <div className="p-2 space-y-1">
+              {conversations.length === 0 ? (
+                <div className="text-center py-8 space-y-4">
+                  <MessageSquare className="h-10 w-10 mx-auto opacity-20" />
+                  <p className="text-muted-foreground text-sm">No conversations yet</p>
+                  <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)}>
+                    Start a chat
+                  </Button>
+                </div>
+              ) : (
+                conversations.map((conv) => (
+                  <div 
+                    key={conv.participantId} 
+                    className="flex items-center gap-3 p-3 rounded-lg cursor-pointer hover:bg-secondary/50 transition-colors"
+                    onClick={async () => {
+                      const chatUser = await api.get(`/users/${conv.participantId}`);
+                      if (chatUser) openChat(chatUser);
+                    }}
+                  >
+                    <div className="relative">
+                      <Avatar className="h-12 w-12">
+                        <AvatarImage src={conv.participantPhoto || undefined} />
+                        <AvatarFallback>{conv.participantName[0]}</AvatarFallback>
+                      </Avatar>
+                      {conv.unreadCount > 0 && (
+                        <div className="absolute -top-1 -right-1 h-5 w-5 bg-accent rounded-full border-2 border-background flex items-center justify-center">
+                          <span className="text-[10px] text-white font-bold">{conv.unreadCount > 9 ? '9+' : conv.unreadCount}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center">
+                        <p className="font-medium truncate">{conv.participantName}</p>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(conv.lastMessage.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {conv.lastMessage.senderId === user?.uid ? 'You: ' : ''}
+                        {conv.lastMessage.type === 'image' ? '📷 Image' : 
+                         conv.lastMessage.type === 'file' ? '📎 File' : 
+                         (() => {
+                           try {
+                             return conv.lastMessage.content.substring(0, 25);
+                           } catch {
+                             return 'New message';
+                           }
+                         })()}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        )}
+      </div>
+
+      {/* Right Side - Chat Area */}
+      <div className={`${selectedChat ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-secondary/20`}>
+        {selectedChat ? (
+          <>
+            {/* Chat Header */}
+            <div className="p-4 border-b bg-paper flex items-center gap-3 shrink-0">
+              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => { setSelectedChat(null); onChatClose?.(); }}>
+                <ChevronRight className="h-5 w-5 rotate-180" />
+              </Button>
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={selectedChat.photoURL || undefined} />
+                <AvatarFallback>{selectedChat.displayName[0]}</AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="font-medium">{selectedChat.displayName}</p>
+                <p className="text-xs text-muted-foreground">Tap for info</p>
+              </div>
+            </div>
+            
+            {/* Messages */}
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-3">
+                {chatMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'}`}
+                  >
+                    {msg.senderId !== user.uid && (
+                      <Avatar className="h-8 w-8 mr-2 self-end shrink-0">
+                        <AvatarImage src={selectedChat?.photoURL} />
+                        <AvatarFallback>{selectedChat?.displayName?.[0]}</AvatarFallback>
+                      </Avatar>
+                    )}
+                    <div 
+                      className={`max-w-[75%] p-3 rounded-2xl ${
+                        msg.senderId === user.uid 
+                          ? 'bg-accent text-accent-foreground' 
+                          : 'bg-paper'
+                      }`}
+                    >
+                      {msg.senderId !== user.uid && (
+                        <p className="text-xs font-medium text-muted-foreground mb-1">{msg.senderName}</p>
+                      )}
+                      {msg.replyTo && (
+                        <div className="text-xs opacity-60 mb-2 border-l-2 pl-2">
+                          Reply to: {chatMessages.find(m => m.id === msg.replyTo)?.content || 'Message'}
+                        </div>
+                      )}
+                      {msg.type === 'image' ? (
+                        <img src={msg.attachment as string || msg.content} alt="attachment" className="rounded-lg max-w-full" />
+                      ) : msg.type === 'file' ? (
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4" />
+                          <span className="text-sm">{msg.content}</span>
+                        </div>
+                      ) : (
+                        <p className="text-sm">{(msg as any).isEncrypted ? decryptMessage(msg.content, generateEncryptionKey(user.uid, selectedChat.uid)) : msg.content}</p>
+                      )}
+                      <div className="flex items-center justify-end gap-1 mt-1">
+                        <span className="text-[10px] opacity-60">
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {msg.senderId === user.uid && (
+                          msg.read ? <CheckCheck className="h-3 w-3 opacity-60" /> : <Check className="h-3 w-3 opacity-60" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+            
+            {/* Reply Bar */}
+            {replyTo && (
+              <div className="px-4 py-2 bg-secondary/50 flex items-center gap-2 shrink-0">
+                <span className="text-xs">Replying to: {replyTo.content.substring(0, 30)}...</span>
+                <Button variant="ghost" size="icon" className="h-4 w-4 ml-auto" onClick={() => setReplyTo(null)}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+            
+            {/* Input Area */}
+            <div className="p-4 bg-paper border-t shrink-0">
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Type a message..."
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                  className="flex-1"
+                />
+                <Button size="icon" onClick={() => document.getElementById('attachment-input')?.click()}>
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+                <input
+                  id="attachment-input"
+                  type="file"
+                  className="hidden"
+                  accept="image/*,.pdf,.doc,.docx"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = async () => {
+                        const msgId = crypto.randomUUID();
+                        const msg: Message = {
+                          id: msgId,
+                          senderId: user.uid,
+                          senderName: user.displayName,
+                          receiverId: selectedChat.uid,
+                          content: file.name,
+                          createdAt: new Date().toISOString(),
+                          type: file.type.startsWith('image') ? 'image' : 'file',
+                          read: false,
+                          attachment: reader.result as string
+                        };
+                        await api.post('/messages', msg);
+                        setChatMessages(prev => [...prev, msg]);
+                      };
+                      reader.readAsDataURL(file);
                     }
                   }}
-                >
-                  {msg.senderId !== user.uid && (
-                    <p className="text-xs font-medium text-muted-foreground mb-1">{msg.senderName}</p>
-                  )}
-                  {msg.replyTo && (
-                    <div className="text-xs opacity-60 mb-2 border-l-2 pl-2">
-                      Reply to: {chatMessages.find(m => m.id === msg.replyTo)?.content || 'Message'}
-                    </div>
-                  )}
-                  {msg.type === 'image' ? (
-                    <img src={msg.attachment as string || msg.content} alt="attachment" className="rounded-lg max-w-full" />
-                  ) : msg.type === 'file' ? (
-                    <div className="flex items-center gap-2">
-                      <Package className="h-4 w-4" />
-                      <span className="text-sm">{msg.content}</span>
-                    </div>
-                  ) : (
-                    <p className="text-sm">{(msg as any).isEncrypted ? decryptMessage(msg.content, generateEncryptionKey(user.uid, selectedChat.uid)) : msg.content}</p>
-                  )}
-                  <div className="flex items-center justify-end gap-1 mt-1">
-                    <span className="text-[10px] opacity-60">
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {msg.senderId === user.uid && (
-                      msg.read ? <CheckCheck className="h-3 w-3 opacity-60" /> : <Check className="h-3 w-3 opacity-60" />
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </ScrollArea>
-        
-        {replyTo && (
-          <div className="flex items-center gap-2 p-2 bg-secondary/50 rounded-lg mb-2">
-            <span className="text-xs">Replying to: {replyTo.content.substring(0, 30)}...</span>
-            <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => setReplyTo(null)}>
-              <X className="h-3 w-3" />
-            </Button>
+                />
+                <Button size="icon" onClick={sendMessage}>
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <MessageSquare className="h-16 w-16 mx-auto opacity-20" />
+              <p className="text-muted-foreground">Select a conversation to start chatting</p>
+            </div>
           </div>
         )}
-        
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Type a message..."
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          />
-          <Button size="icon" onClick={() => document.getElementById('attachment-input')?.click()}>
-            <Paperclip className="h-4 w-4" />
-          </Button>
-          <input
-            id="attachment-input"
-            type="file"
-            className="hidden"
-            accept="image/*,.pdf,.doc,.docx"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) sendAttachment(file);
-            }}
-          />
-          <Button size="icon" onClick={sendMessage}>
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <Dialog open={!!swipeAction} onOpenChange={() => setSwipeAction(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete Message?</DialogTitle>
-              <DialogDescription>This action cannot be undone.</DialogDescription>
-            </DialogHeader>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setSwipeAction(null)}>Cancel</Button>
-              <Button variant="destructive" className="flex-1" onClick={() => swipeAction && confirmDelete(swipeAction.messageId)}>Delete</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
-    );
-  }
 
-  return (
-    <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
-      <div className="flex items-center justify-between">
-        <h2 className="text-4xl serif">Inbox</h2>
-        <Button variant="outline" size="sm" onClick={() => setSearchOpen(true)} className="gap-2">
-          <Search className="h-4 w-4" />
-          Search Users
-        </Button>
-      </div>
-      
-<Dialog open={searchOpen} onOpenChange={(open) => { setSearchOpen(open); if (!open) { setSearchQuery(''); setSearchResults({ users: [], onlineUsers: [] }); } }}>
+      <Dialog open={searchOpen} onOpenChange={(open) => { setSearchOpen(open); if (!open) { setSearchQuery(''); setSearchResults({ users: [], onlineUsers: [] }); } }}>
         <DialogContent className='max-w-md'>
           <DialogHeader>
             <DialogTitle>Search Users</DialogTitle>
@@ -956,134 +991,6 @@ const handleSearch = useCallback(async () => {
           </div>
         </DialogContent>
       </Dialog>
-      
-      <Tabs defaultValue="messages" className="w-full">
-        <TabsList className="w-full bg-secondary/50 p-1 rounded-full">
-          <TabsTrigger value="messages" className="flex-1 rounded-full relative">
-            Messages
-            {unreadMessagesCount > 0 && (
-              <Badge className="ml-2 bg-accent text-white h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
-                {unreadMessagesCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="flex-1 rounded-full relative">
-            Notifications
-            {unreadNotificationsCount > 0 && (
-              <Badge className="ml-2 bg-accent text-white h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
-                {unreadNotificationsCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="messages" className="mt-6 space-y-4">
-          {conversations.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Recent Chats</h3>
-              {conversations.map((conv) => (
-                <Card 
-                  key={conv.participantId} 
-                  className="border-none shadow-sm transition-colors cursor-pointer bg-secondary/30 hover:bg-secondary/50"
-                  onClick={async () => {
-                    const chatUser = await api.get(`/users/${conv.participantId}`);
-                    if (chatUser) openChat(chatUser);
-                  }}
-                >
-                  <CardContent className="p-3 flex gap-3 items-center">
-                    <div className="relative">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={conv.participantPhoto || undefined} />
-                        <AvatarFallback>{conv.participantName[0]}</AvatarFallback>
-                      </Avatar>
-                      {conv.unreadCount > 0 && (
-                        <div className="absolute -top-1 -right-1 h-4 w-4 bg-accent rounded-full border-2 border-background flex items-center justify-center">
-                          <span className="text-[10px] text-white font-bold">{conv.unreadCount > 9 ? '9+' : conv.unreadCount}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center">
-                        <p className="text-sm font-medium truncate">{conv.participantName}</p>
-                        <span className="text-[10px] text-muted-foreground">
-                          {new Date(conv.lastMessage.createdAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {conv.lastMessage.senderId === user?.uid ? 'You: ' : ''}
-                        {conv.lastMessage.type === 'image' ? 'Sent an image' : 
-                         conv.lastMessage.type === 'file' ? 'Sent a file' : 
-                         (() => {
-                           try {
-                             return conv.lastMessage.content.substring(0, 30);
-                           } catch {
-                             return 'New message';
-                           }
-                         })()}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-          {messages.length === 0 && conversations.length === 0 ? (
-            <p className="text-center py-10 text-muted-foreground">No messages yet. Start a conversation by searching for users.</p>
-          ) : messages.length > 0 && (
-            <div className="space-y-2 pt-4 border-t">
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">All Messages</h3>
-              {messages.map(msg => (
-                <Card 
-                  key={msg.id} 
-                  className={`border-none shadow-sm transition-colors cursor-pointer ${msg.read ? 'bg-paper' : 'bg-accent/5'}`}
-                  onClick={() => markMessageAsRead(msg.id)}
-                >
-                  <CardContent className="p-4 flex gap-4">
-                    <div className="relative">
-                      <Avatar className="h-10 w-10">
-                        <AvatarFallback>{msg.senderName[0]}</AvatarFallback>
-                      </Avatar>
-                      {!msg.read && (
-                        <div className="absolute -top-1 -right-1 h-3 w-3 bg-accent rounded-full border-2 border-background" />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex justify-between items-center">
-                        <p className={`text-sm ${msg.read ? 'font-medium' : 'font-bold'}`}>{msg.senderName}</p>
-                        <span className="text-[10px] text-muted-foreground">{new Date(msg.createdAt).toLocaleDateString()}</span>
-                      </div>
-                      <p className={`text-sm ${msg.read ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>{(msg as any).isEncrypted && msg.receiverId === user?.uid ? decryptMessage(msg.content, generateEncryptionKey(user.uid, msg.senderId)) : msg.content}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="notifications" className="mt-6 space-y-4">
-          {notifications.length === 0 ? (
-            <p className="text-center py-10 text-muted-foreground">No notifications yet.</p>
-          ) : (
-            notifications.map(notif => (
-              <Card 
-                key={notif.id} 
-                className={`border-none shadow-sm transition-colors cursor-pointer ${notif.read ? 'bg-paper' : 'bg-accent/5'}`}
-                onClick={() => markNotificationAsRead(notif.id)}
-              >
-                <CardContent className="p-4 flex gap-4">
-                  <div className={`h-2 w-2 rounded-full mt-2 ${notif.read ? 'bg-transparent' : 'bg-accent'}`} />
-                  <div className="flex-1 space-y-1">
-                    <p className={`text-sm ${notif.read ? 'font-medium' : 'font-bold'}`}>{notif.title}</p>
-                    <p className="text-sm text-muted-foreground">{notif.content}</p>
-                    <span className="text-[10px] text-muted-foreground">{new Date(notif.createdAt).toLocaleDateString()}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </TabsContent>
-      </Tabs>
     </div>
   );
 };
@@ -1320,6 +1227,10 @@ const AdminDashboard = () => {
   const { formatPrice } = useCurrency();
   const { user: currentUser } = useAuth();
 
+  useEffect(() => {
+    fetchData();
+  }, []);
+
   const filteredOrders = orderSearch.trim() 
     ? orders.filter(o => 
         o.id.toLowerCase().includes(orderSearch.toLowerCase()) ||
@@ -1347,7 +1258,7 @@ const AdminDashboard = () => {
         api.get('/users?all=true'),
         api.get('/products?includeUnapproved=true&all=true'),
         api.get('/orders?all=true'),
-        api.get('/business/verify-requests')
+        api.get('/business/verify-requests/all')
       ]);
       setUsers(u || []);
       setProducts((p || []).filter((prod: Product, index: number, self: Product[]) => 
@@ -4719,6 +4630,225 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
   );
 };
 
+// --- Categories View ---
+
+const CategoriesView = ({ onProductClick, onCategorySelect }: { onProductClick: (p: Product) => void, onCategorySelect: (cat: string) => void }) => {
+  const [categories, setCategories] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.get('/categories').then(setCategories).catch(console.error);
+  }, []);
+
+  const getCategoryIcon = (cat: string) => {
+    const lower = cat.toLowerCase();
+    if (lower.includes('dress') || lower.includes('cloth') || lower.includes('shirt') || lower.includes('fashion') || lower.includes('wear') || lower.includes('apparel')) return Shirt;
+    if (lower.includes('shoe') || lower.includes('sneaker') || lower.includes('heel') || lower.includes('boot')) return Footprints;
+    if (lower.includes('watch') || lower.includes('jewelry') || lower.includes('necklace') || lower.includes('ring') || lower.includes('bracelet')) return Diamond;
+    if (lower.includes('bag') || lower.includes('purse') || lower.includes('handbag')) return ShoppingCart;
+    if (lower.includes('makeup') || lower.includes('beauty') || lower.includes('cosmetic') || lower.includes('skincare')) return Palette;
+    if (lower.includes('baby') || lower.includes('kid') || lower.includes('child')) return Baby;
+    if (lower.includes('accessory') || lower.includes('hat') || lower.includes('cap') || lower.includes('sunglass')) return Crown;
+    if (lower.includes('formal') || lower.includes('suit') || lower.includes('business')) return Briefcase;
+    if (lower.includes('watch')) return Watch;
+    return Shirt;
+  };
+
+  const getCategoryColor = (cat: string) => {
+    const lower = cat.toLowerCase();
+    if (lower.includes('dress') || lower.includes('fashion') || lower.includes('wear')) return 'text-pink-500';
+    if (lower.includes('beauty') || lower.includes('makeup')) return 'text-rose-500';
+    if (lower.includes('jewelry') || lower.includes('watch')) return 'text-amber-500';
+    if (lower.includes('bag')) return 'text-purple-500';
+    return 'text-accent';
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
+      <div>
+        <h2 className="text-4xl serif">Categories</h2>
+        <p className="text-muted-foreground">Browse by category</p>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {categories.map(cat => {
+          const Icon = getCategoryIcon(cat);
+          const colorClass = getCategoryColor(cat);
+          return (
+            <Card 
+              key={cat} 
+              className="border-none shadow-sm cursor-pointer hover:bg-secondary/50 transition-colors"
+              onClick={() => onCategorySelect(cat)}
+            >
+              <CardContent className="p-6 flex flex-col items-center gap-4">
+                <div className={`p-4 rounded-full bg-secondary ${colorClass}`}>
+                  <Icon className="h-8 w-8" />
+                </div>
+                <p className="font-medium text-center">{cat}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// --- Favorites View ---
+
+const FavoritesView = ({ onProductClick, user }: { onProductClick: (p: Product) => void, user: User }) => {
+  const [favorites, setFavorites] = useState<Product[]>([]);
+
+  useEffect(() => {
+    api.get('/api/products?all=true').then((prods: Product[]) => {
+      setFavorites(prods.filter((p: Product) => p.likeCount && p.likeCount > 0));
+    }).catch(console.error);
+  }, []);
+
+  return (
+    <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
+      <div>
+        <h2 className="text-4xl serif">Favorites</h2>
+        <p className="text-muted-foreground">Your liked products</p>
+      </div>
+      {favorites.length === 0 ? (
+        <div className="text-center py-12">
+          <Heart className="h-12 w-12 mx-auto text-muted-foreground/30" />
+          <p className="text-muted-foreground mt-4">No favorites yet</p>
+        </div>
+      ) : (
+        <ProductGrid products={favorites} onProductClick={onProductClick} onBusinessClick={() => {}} />
+      )}
+    </div>
+  );
+};
+
+// --- Following View ---
+
+const FollowingView = ({ onProductClick, onBusinessClick, user }: { onProductClick: (p: Product) => void, onBusinessClick: (id: string) => void, user: User }) => {
+  const [followed, setFollowed] = useState<User[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const follows = await api.get(`/follows/${user.uid}`);
+        const users = await Promise.all((follows || []).map((f: any) => api.get(`/users/${f.followingId}`)));
+        setFollowed(users.filter(Boolean));
+        
+        const allProds = await api.get('/api/products?all=true');
+        const followedProducts = (allProds || []).filter((p: Product) => 
+          users.some((u: User) => u.uid === p.sellerId)
+        );
+        setProducts(followedProducts);
+      } catch (e) {
+        console.error("Failed to fetch following", e);
+      }
+    };
+    fetchData();
+  }, [user.uid]);
+
+  return (
+    <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
+      <div>
+        <h2 className="text-4xl serif">Following</h2>
+        <p className="text-muted-foreground">Boutiques you follow</p>
+      </div>
+      {followed.length === 0 ? (
+        <div className="text-center py-12">
+          <Users className="h-12 w-12 mx-auto text-muted-foreground/30" />
+          <p className="text-muted-foreground mt-4">Not following anyone yet</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-4 overflow-x-auto pb-4">
+            {followed.map(u => (
+              <Card 
+                key={u.uid} 
+                className="border-none shadow-sm cursor-pointer shrink-0 w-40"
+                onClick={() => onBusinessClick(u.uid)}
+              >
+                <CardContent className="p-4 flex flex-col items-center gap-2">
+                  <Avatar className="h-16 w-16">
+                    <AvatarImage src={u.photoURL} />
+                    <AvatarFallback>{u.displayName[0]}</AvatarFallback>
+                  </Avatar>
+                  <p className="text-sm font-medium text-center truncate w-full">{u.businessName || u.displayName}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <div>
+            <h3 className="text-xl serif mb-4">Latest from following</h3>
+            <ProductGrid products={products.slice(0, 20)} onProductClick={onProductClick} onBusinessClick={onBusinessClick} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// --- Wallet View ---
+
+const WalletView = ({ user }: { user: User }) => {
+  const [orders, setOrders] = useState<Order[]>([]);
+
+  useEffect(() => {
+    api.get('/orders?all=true').then((data: Order[]) => {
+      setOrders(data.filter((o: Order) => o.customerId === user.uid));
+    }).catch(console.error);
+  }, [user.uid]);
+
+  const totalSpent = orders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + o.total, 0);
+  const pendingOrders = orders.filter(o => o.status === 'pending').length;
+
+  return (
+    <div className="container mx-auto px-4 py-8 space-y-8 pb-24">
+      <div>
+        <h2 className="text-4xl serif">Wallet & Payments</h2>
+        <p className="text-muted-foreground">Your payment history</p>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-none bg-paper shadow-sm">
+          <CardContent className="p-6">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">Total Spent</p>
+            <p className="text-3xl font-medium mt-2">UGX {totalSpent.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-none bg-paper shadow-sm">
+          <CardContent className="p-6">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">Orders Made</p>
+            <p className="text-3xl font-medium mt-2">{orders.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-none bg-paper shadow-sm">
+          <CardContent className="p-6">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">Pending</p>
+            <p className="text-3xl font-medium mt-2">{pendingOrders}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <h3 className="text-xl serif mb-4">Payment Methods</h3>
+        <Card className="border-none bg-paper shadow-sm">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
+              <div className="flex items-center gap-3">
+                <Smartphone className="h-5 w-5" />
+                <div>
+                  <p className="font-medium">Mobile Money</p>
+                  <p className="text-sm text-muted-foreground">Airtel Money / MTN MoMo</p>
+                </div>
+              </div>
+              <Badge>Active</Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+};
+
 // --- Main App ---
 
 const AppContent = () => {
@@ -4781,12 +4911,34 @@ const AppContent = () => {
   useEffect(() => {
     fetchProducts();
     fetchBestSellers();
+    fetchAnnouncement();
     const interval = setInterval(() => {
       fetchProducts();
       fetchBestSellers();
+      fetchAnnouncement();
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  const fetchAnnouncement = async () => {
+    try {
+      const announcements = await api.get('/announcements/active');
+      if (announcements && announcements.length > 0) {
+        const a = announcements[0];
+        setAnnouncement({
+          text: a.text,
+          theme: a.theme,
+          fontSize: a.fontSize,
+          padding: a.padding,
+          borderRadius: a.borderRadius,
+          duration: a.duration,
+          closable: !!a.closable
+        });
+      }
+    } catch (e) {
+      console.error("Failed to fetch announcement", e);
+    }
+  };
 
   const filteredProducts = products.filter(p => 
     (p.isApproved === 1) && (
@@ -4849,7 +5001,15 @@ const AppContent = () => {
                   <ul className="space-y-4">
                     <li><button onClick={() => { if (user) { setView('orders'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">My Orders</button></li>
                     {user?.role !== 'customer' && <li><button onClick={() => { setView('orders'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Sales & Revenue</button></li>}
-                    <li><button onClick={() => { if (user) { setView('profile'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Wallet & Payments</button></li>
+                    <li><button onClick={() => { if (user) { setView('wallet'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Wallet & Payments</button></li>
+                  </ul>
+                </div>
+                <div className="space-y-6">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Browse</h4>
+                  <ul className="space-y-4">
+                    <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Categories</button></li>
+                    <li><button onClick={() => { setView('favorites'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Favorites</button></li>
+                    <li><button onClick={() => { setView('following'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Following</button></li>
                   </ul>
                 </div>
                 <div className="space-y-6">
@@ -4857,7 +5017,8 @@ const AppContent = () => {
                   <ul className="space-y-4">
                     <li><button onClick={() => { if (user) { setView('profile'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Personal</button></li>
                     {user?.role !== 'customer' && <li><button onClick={() => { setView('inventory'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Business</button></li>}
-                    <li><button onClick={() => { setMenuSection(menuSection === 'personal' ? null : 'personal'); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Other Settings</button></li>
+                    {user?.role === 'admin' && <li><button onClick={() => { setView('admin'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Admin Panel</button></li>}
+                    {user?.role === 'admin' && <li><button onClick={() => { setShowAnnouncementModal(true); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3 text-accent">Post Announcement</button></li>}
                   </ul>
                 </div>
                 <div className="space-y-6 pt-12 border-t border-paper/10">
@@ -4886,7 +5047,7 @@ const AppContent = () => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`fixed top-16 left-0 right-0 z-40 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable ? 'cursor-pointer' : ''}`}
+          className={`fixed top-0 left-0 right-0 z-50 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable ? 'cursor-pointer' : ''}`}
           style={{
             fontSize: announcement.fontSize,
             padding: announcement.padding,
@@ -4992,16 +5153,22 @@ const AppContent = () => {
               />
               <Label>Closable by users</Label>
             </div>
-            <Button className="w-full" onClick={() => {
+            <Button className="w-full" onClick={async () => {
               if (!announcementData.text.trim()) {
                 toast.error('Please enter announcement text');
                 return;
               }
-              setAnnouncement(announcementData);
-              toast.success('Announcement posted!');
-              setShowAnnouncementModal(false);
-              if (announcementData.duration > 0) {
-                setTimeout(() => setAnnouncement(null), announcementData.duration * 60 * 1000);
+              try {
+                await api.post('/announcements', {
+                  id: crypto.randomUUID(),
+                  ...announcementData
+                });
+                setAnnouncement(announcementData);
+                toast.success('Announcement posted!');
+                setShowAnnouncementModal(false);
+              } catch (error) {
+                console.error("Failed to post announcement", error);
+                toast.error('Failed to post announcement');
               }
             }}>
               Post Announcement
@@ -5087,6 +5254,19 @@ const AppContent = () => {
           )}
 
           {view === 'inbox' && <InboxView onChatOpen={() => setIsInChat(true)} onChatClose={() => setIsInChat(false)} />}
+
+          {view === 'categories' && (
+            <CategoriesView onProductClick={handleProductSelect} onCategorySelect={(cat) => {
+              setSearchQuery(cat);
+              setView('home');
+            }} />
+          )}
+
+          {view === 'favorites' && user && <FavoritesView onProductClick={handleProductSelect} user={user} />}
+
+          {view === 'following' && user && <FollowingView onProductClick={handleProductSelect} onBusinessClick={setSelectedSellerId} user={user} />}
+
+          {view === 'wallet' && user && <WalletView user={user} />}
 
           {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
           {view === 'orders' && user && <OrdersView user={user} />}
