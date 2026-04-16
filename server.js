@@ -360,9 +360,9 @@ async function startServer() {
     if (all === 'true') {
       limitNum = 10000;
     } else {
-      limitNum = Math.min(parseInt(limit as string) || 50, 100);
+      limitNum = Math.min(Number(limit) || 50, 100);
     }
-    const offsetNum = parseInt(offset as string) || 0;
+    const offsetNum = Number(offset) || 0;
     const users = db.prepare("SELECT * FROM users LIMIT ? OFFSET ?").all(limitNum, offsetNum);
     res.json(users);
   });
@@ -612,9 +612,9 @@ async function startServer() {
     if (all === 'true') {
       limitNum = 10000;
     } else {
-      limitNum = Math.min(parseInt(limit as string) || 50, 100);
+      limitNum = Math.min(Number(limit) || 50, 100);
     }
-    const offsetNum = parseInt(offset as string) || 0;
+    const offsetNum = Number(offset) || 0;
     let products;
     if (includeUnapproved === 'true') {
       products = db.prepare("SELECT * FROM products ORDER BY createdAt DESC LIMIT ? OFFSET ?").all(limitNum, offsetNum);
@@ -650,8 +650,8 @@ async function startServer() {
 
   app.get("/api/products/pending", (req, res) => {
     const { limit, offset } = req.query;
-    const limitNum = Math.min(parseInt(limit as string) || 50, 100);
-    const offsetNum = parseInt(offset as string) || 0;
+    const limitNum = Math.min(Number(limit) || 50, 100);
+    const offsetNum = Number(offset) || 0;
     const products = db.prepare("SELECT * FROM products WHERE isApproved = 0 ORDER BY createdAt DESC LIMIT ? OFFSET ?").all(limitNum, offsetNum);
     res.json(products.map((p) => ({ ...p, images: JSON.parse(p.images) })));
   });
@@ -663,7 +663,7 @@ async function startServer() {
 
   app.get('/api/best-sellers', (req, res) => {
     const { limit } = req.query;
-    const limitNum = Math.min(parseInt(limit as string) || 20, 50);
+    const limitNum = Math.min(Number(limit) || 20, 50);
     const products = db.prepare(`
       SELECT p.*, u.businessName as sellerName, u.photoURL as sellerPhoto,
         (SELECT COUNT(*) FROM reviews r WHERE r.productId = p.id) as reviewCount
@@ -673,6 +673,55 @@ async function startServer() {
       ORDER BY (COALESCE(p.reviewCount, 0) * 2 + COALESCE(p.likeCount, 0) + COALESCE(p.visitCount, 0)) DESC
       LIMIT ?
     `).all(limitNum);
+    res.json(products.map((p) => {
+      try {
+        const images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
+        return { ...p, images: Array.isArray(images) ? images : [] };
+      } catch (e) {
+        return { ...p, images: [] };
+      }
+    }));
+  });
+
+  app.get('/api/products/search', (req, res) => {
+    const { q, category, minPrice, maxPrice, condition, sortBy, limit, offset } = req.query;
+    let query = 'SELECT p.*, u.displayName as sellerName, u.photoURL as sellerPhoto, u.businessName as sellerBusinessName FROM products p JOIN users u ON p.sellerId = u.uid WHERE p.isApproved = 1';
+    const params = [];
+    
+    if (q) {
+      query += ' AND (p.name LIKE ? OR p.description LIKE ?)';
+      params.push(`%${q}%`, `%${q}%`);
+    }
+    if (category && category !== 'all') {
+      query += ' AND p.category = ?';
+      params.push(category);
+    }
+    if (minPrice) {
+      query += ' AND p.price >= ?';
+      params.push(Number(minPrice));
+    }
+    if (maxPrice) {
+      query += ' AND p.price <= ?';
+      params.push(Number(maxPrice));
+    }
+    if (condition && condition !== 'all') {
+      query += ' AND p.condition = ?';
+      params.push(condition);
+    }
+    
+    const sortColumn = (sortBy === 'price_asc' ? 'p.price ASC' : 
+                       sortBy === 'price_desc' ? 'p.price DESC' : 
+                       sortBy === 'newest' ? 'p.createdAt DESC' : 
+                       sortBy === 'popular' ? '(COALESCE(p.likeCount, 0) + COALESCE(p.visitCount, 0)) DESC' :
+                       'p.createdAt DESC');
+    query += ` ORDER BY ${sortColumn}`;
+    
+    const limitNum = Math.min(Number(limit) || 50, 100);
+    const offsetNum = Number(offset) || 0;
+    query += ' LIMIT ? OFFSET ?';
+    params.push(limitNum, offsetNum);
+    
+    const products = db.prepare(query).all(...params);
     res.json(products.map((p) => {
       try {
         const images = typeof p.images === 'string' ? JSON.parse(p.images) : p.images;
@@ -704,6 +753,61 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get('/api/analytics/seller/:sellerId', (req, res) => {
+    const sellerId = req.params.sellerId;
+    
+    const totalProducts = db.prepare("SELECT COUNT(*) as count FROM products WHERE sellerId = ? AND isApproved = 1").get(sellerId);
+    const totalOrders = db.prepare("SELECT COUNT(*) as count FROM orders WHERE sellerIds LIKE ?", `%${sellerId}%`).get(sellerId);
+    
+    const totalRevenue = db.prepare(`
+      SELECT SUM(total) as revenue FROM orders 
+      WHERE sellerIds LIKE ? AND status = 'delivered'
+    `%`%${sellerId}%`).get();
+    
+    const pendingOrders = db.prepare(`
+      SELECT COUNT(*) as count FROM orders 
+      WHERE sellerIds LIKE ? AND (status = 'pending' OR status = 'processing')
+    `%`%${sellerId}%`).get();
+    
+    const topProducts = db.prepare(`
+      SELECT name, price, likeCount, visitCount, reviewCount 
+      FROM products 
+      WHERE sellerId = ? AND isApproved = 1 
+      ORDER BY (COALESCE(likeCount, 0) + COALESCE(visitCount, 0)) DESC 
+      LIMIT 5
+    `).all(sellerId);
+    
+    const recentOrders = db.prepare(`
+      SELECT o.*, u.displayName as customerName, u.photoURL as customerPhoto
+      FROM orders o
+      JOIN users u ON o.customerId = u.uid
+      WHERE o.sellerIds LIKE ?
+      ORDER BY o.createdAt DESC
+      LIMIT 10
+    `%`%${sellerId}%`).all();
+    
+    const monthlySales = db.prepare(`
+      SELECT 
+        strftime('%Y-%m', createdAt) as month,
+        COUNT(*) as orderCount,
+        SUM(total) as revenue
+      FROM orders
+      WHERE sellerIds LIKE ? AND status = 'delivered' AND createdAt >= date('now', '-6 months')
+      GROUP BY strftime('%Y-%m', createdAt)
+      ORDER BY month ASC
+    `%`%${sellerId}%`).all();
+    
+    res.json({
+      totalProducts: totalProducts?.count || 0,
+      totalOrders: totalOrders?.count || 0,
+      totalRevenue: totalRevenue?.revenue || 0,
+      pendingOrders: pendingOrders?.count || 0,
+      topProducts,
+      recentOrders: recentOrders.map(o => ({...o, items: JSON.parse(o.items || '[]')})),
+      monthlySales
+    });
+  });
+
   app.delete("/api/products/:id", (req, res) => {
     db.prepare("DELETE FROM products WHERE id = ?").run(req.params.id);
     res.json({ success: true });
@@ -717,12 +821,12 @@ async function startServer() {
   app.get("/api/orders", (req, res) => {
     const { limit, offset, all } = req.query;
     let limitNum;
-    if (all === 'true') {
+if (all === 'true') {
       limitNum = 10000;
     } else {
-      limitNum = Math.min(parseInt(limit as string) || 100, 500);
+      limitNum = Math.min(parseInt(limit) || 50, 100);
     }
-    const offsetNum = parseInt(offset as string) || 0;
+    const offsetNum = parseInt(offset) || 0;
     const orders = db.prepare("SELECT * FROM orders ORDER BY createdAt DESC LIMIT ? OFFSET ?").all(limitNum, offsetNum);
     res.json(orders.map((o) => ({ 
       ...o, 

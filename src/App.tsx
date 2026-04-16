@@ -2391,7 +2391,7 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
   );
 };
 
-const Navbar = ({ onNavigate, onOpenMenu, onSearch }: { onNavigate: (view: string) => void, onOpenMenu: () => void, onSearch: (q: string) => void }) => {
+const Navbar = ({ onNavigate, onOpenMenu, onSearch, searchQuery }: { onNavigate: (view: string) => void, onOpenMenu: () => void, onSearch: (q: string) => void, searchQuery?: string }) => {
   const { user, login, logout } = useAuth();
   const { items, total, itemCount, updateQuantity, removeItem } = useCart();
   const { formatPrice } = useCurrency();
@@ -2661,7 +2661,7 @@ const Hero = () => (
   </section>
 );
 
-const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: Product[], onProductClick: (p: Product) => void, onBusinessClick: (sellerId: string) => void }) => {
+const ProductGrid = ({ products, onProductClick, onBusinessClick, compareList, onToggleCompare }: { products: Product[], onProductClick: (p: Product) => void, onBusinessClick: (sellerId: string) => void, compareList?: Product[], onToggleCompare?: (p: Product) => void }) => {
   const { addItem } = useCart();
   const { formatPrice } = useCurrency();
   const [visibleCount, setVisibleCount] = useState(20);
@@ -2669,6 +2669,28 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
 
   return (
     <>
+      {compareList && compareList.length > 0 && (
+        <div className="fixed bottom-20 left-4 right-4 md:left-auto md:right-4 md:w-80 bg-paper border rounded-xl shadow-xl p-4 z-40">
+          <div className="flex justify-between items-center mb-2">
+            <span className="font-medium">Compare ({compareList.length}/4)</span>
+            <Button size="sm" variant="ghost" onClick={() => {}}>Clear</Button>
+          </div>
+          <div className="flex gap-2 overflow-x-auto">
+            {compareList.map(p => (
+              <div key={p.id} className="relative w-16 h-16 bg-secondary rounded flex-shrink-0">
+                <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover rounded" />
+                <button 
+                  className="absolute -top-1 -right-1 bg-destructive text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
+                  onClick={() => onToggleCompare?.(p)}
+                >×</button>
+              </div>
+            ))}
+          </div>
+          <Button className="w-full mt-2" size="sm" onClick={() => {}}>
+            Compare Now
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-8">
         {displayProducts.map((product) => (
           <div
@@ -2705,7 +2727,7 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
                   </Badge>
                 </div>
               )}
-              <div className='absolute top-2 right-2 md:top-4 md:right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity'>
+              <div className='absolute top-2 right-2 md:top-4 md:right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity flex gap-1'>
                 <Button
                   size="icon" 
                   className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-paper text-ink hover:bg-accent hover:text-white shadow-lg"
@@ -2716,6 +2738,25 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
                 >
                   <Plus className="h-4 w-4 md:h-5 md:w-5" />
                 </Button>
+                {onToggleCompare && (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-paper/80 border-none"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleCompare(product);
+                    }}
+                  >
+                    {compareList?.find(p => p.id === product.id) ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    )}
+                  </Button>
+                )}
               </div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4 md:p-6 pointer-events-none">
                 <Button 
@@ -4884,7 +4925,10 @@ const AppContent = () => {
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementData, setAnnouncementData] = useState({ text: '', theme: 'accent', fontSize: 'text-sm', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true });
   const [isInChat, setIsInChat] = useState(false);
-  const { user, login } = useAuth();
+  const [compareList, setCompareList] = useState<Product[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
+  const [searchFilters, setSearchFilters] = useState({ category: 'all', minPrice: '', maxPrice: '', condition: 'all', sortBy: 'newest' });
+  const { user, login, logout } = useAuth();
   const { addItem } = useCart();
   const { formatPrice } = useCurrency();
 
@@ -4959,109 +5003,60 @@ const AppContent = () => {
     }
   };
 
-  const filteredProducts = products.filter(p => 
+const filteredProducts = products.filter(p => 
     (p.isApproved === 1) && (
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.sellerName && p.sellerName.toLowerCase().includes(searchQuery.toLowerCase()))
-  ));
+  )
+  );
 
-  // Master Admin Check
-  useEffect(() => {
-    if (user && (user.email === 'bikuumba26@gmail.com' || user.email === 'bitbyte790@gmail.com') && user.role !== 'admin') {
-      api.post('/users', { ...user, role: 'admin' });
+  const handleSearchWithFilters = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (searchQuery) params.append('q', searchQuery);
+      if (searchFilters.category !== 'all') params.append('category', searchFilters.category);
+      if (searchFilters.minPrice) params.append('minPrice', searchFilters.minPrice);
+      if (searchFilters.maxPrice) params.append('maxPrice', searchFilters.maxPrice);
+      if (searchFilters.condition !== 'all') params.append('condition', searchFilters.condition);
+      params.append('sortBy', searchFilters.sortBy);
+      
+      const results = await api.get(`/products/search?${params.toString()}`);
+      setProducts(results || []);
+    } catch (error) {
+      console.error("Search failed", error);
     }
-  }, [user]);
-
-  const handleVisitBoutique = async (product: Product) => {
-    setView('inventory');
-    setSelectedProduct(null);
   };
 
-  const handleProductSelect = async (product: Product) => {
-    setSelectedProduct(product);
-    try {
-      await api.post('/products', { ...product, visitCount: (product.visitCount || 0) + 1 });
-    } catch (error) {
-      console.error("Failed to increment visit count", error);
+  useEffect(() => {
+    if (searchQuery || searchFilters.category !== 'all' || searchFilters.minPrice || searchFilters.maxPrice || searchFilters.condition !== 'all') {
+      handleSearchWithFilters();
+    } else {
+      fetchProducts();
     }
+  }, [searchQuery, searchFilters]);
+
+const toggleCompare = (product: Product) => {
+    setCompareList(prev => {
+      if (prev.find(p => p.id === product.id)) {
+        return prev.filter(p => p.id !== product.id);
+      }
+      if (prev.length >= 4) {
+        toast.error("You can compare up to 4 products");
+        return prev;
+      }
+      return [...prev, product];
+    });
+  };
+
+  const handleProductSelect = (product: Product) => {
+    setSelectedProduct(product);
+    api.post('/products', { ...product, visitCount: (product.visitCount || 0) + 1 });
   };
 
   return (
-    <div className="min-h-screen flex flex-col pb-16 md:pb-0 overflow-x-hidden">
-      <Navbar onNavigate={setView} onOpenMenu={() => setIsMenuOpen(true)} onSearch={setSearchQuery} />
-      <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-        <SheetContent side="left" className="w-[300px] sm:w-[400px] bg-ink text-paper border-none p-0 flex flex-col">
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="p-8 space-y-4 shrink-0">
-              <div className="flex justify-between items-center">
-                <h2 className="serif text-3xl text-paper tracking-tighter">BIKUUMBA</h2>
-                <Button variant="ghost" size="icon" className="text-paper/60 hover:text-paper" onClick={() => setIsMenuOpen(false)}>
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-              <p className="text-paper/60 text-sm leading-relaxed">
-                Elevating the boutique experience through curated excellence and artisanal craft.
-              </p>
-            </div>
-
-            <ScrollArea className="flex-1 px-8 overflow-hidden">
-              <div className="space-y-12 py-4 pr-4">
-                <div className="space-y-6">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Shop</h4>
-                  <ul className="space-y-4 text-xl serif">
-                    <li><button onClick={() => { setView('home'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors flex items-center gap-3">New Arrivals <ArrowRight className="h-4 w-4 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all" /></button></li>
-                    <li><button onClick={() => { setView('best-sellers'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Best Sellers</button></li>
-                    <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Categories</button></li>
-                  </ul>
-                </div>
-                <div className="space-y-6">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Finance</h4>
-                  <ul className="space-y-4">
-                    <li><button onClick={() => { if (user) { setView('orders'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">My Orders</button></li>
-                    {user?.role !== 'customer' && <li><button onClick={() => { setView('orders'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Sales & Revenue</button></li>}
-                    <li><button onClick={() => { if (user) { setView('wallet'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Wallet & Payments</button></li>
-                  </ul>
-                </div>
-                <div className="space-y-6">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Browse</h4>
-                  <ul className="space-y-4">
-                    <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Categories</button></li>
-                    <li><button onClick={() => { setView('favorites'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Favorites</button></li>
-                    <li><button onClick={() => { setView('following'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Following</button></li>
-                  </ul>
-                </div>
-                <div className="space-y-6">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Account</h4>
-                  <ul className="space-y-4">
-                    <li><button onClick={() => { if (user) { setView('profile'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Personal</button></li>
-                    {user?.role !== 'customer' && <li><button onClick={() => { setView('inventory'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Business</button></li>}
-                    {user?.role === 'admin' && <li><button onClick={() => { setView('admin'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Admin Panel</button></li>}
-                    {user?.role === 'admin' && <li><button onClick={() => { setShowAnnouncementModal(true); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3 text-accent">Post Announcement</button></li>}
-                  </ul>
-                </div>
-                <div className="space-y-6 pt-12 border-t border-paper/10">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Newsletter</h4>
-                  <p className="text-sm text-paper/60">Join our list for exclusive releases.</p>
-                  <div className="flex gap-2">
-                    <Input placeholder="Email address" className="bg-paper/10 border-none text-paper placeholder:text-paper/30 rounded-full h-12" />
-                    <Button size="icon" className="rounded-full bg-paper text-ink hover:bg-paper/90 h-12 w-12 shrink-0"><ArrowRight className="h-5 w-5" /></Button>
-                  </div>
-                </div>
-              </div>
-            </ScrollArea>
-
-            <div className="p-8 border-t border-paper/10 bg-paper/5 shrink-0">
-              <div className="flex gap-4 text-[10px] uppercase tracking-widest text-paper/40">
-                <a href="#" className="hover:text-paper transition-colors">Privacy</a>
-                <a href="#" className="hover:text-paper transition-colors">Terms</a>
-                <a href="#" className="hover:text-paper transition-colors">Support</a>
-              </div>
-            </div>
-          </div>
-</SheetContent>
-      </Sheet>
-
+    <div className="min-h-screen bg-background">
+      <Navbar onNavigate={setView} onOpenMenu={() => setIsMenuOpen(true)} onSearch={setSearchQuery} searchQuery={searchQuery} />
       {announcement && (
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
@@ -5081,6 +5076,9 @@ const AppContent = () => {
           <div className="container mx-auto text-center text-paper font-medium">
             {announcement.text}
           </div>
+          {announcement?.closable && (
+            <button className="absolute right-4 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setAnnouncement(null); }}>✕</button>
+          )}
         </motion.div>
       )}
 
@@ -5195,137 +5193,158 @@ const AppContent = () => {
           </div>
         </DialogContent>
       </Dialog>
-
       <main className="flex-1">
-        <AnimatePresence mode="wait">
-          {view === 'home' && (
-            <motion.div
-              key="home"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <div className="bg-ink text-paper py-2 px-4">
-                <div className="container mx-auto text-center space-y-1">
-                  <Badge variant="outline" className="border-paper/30 text-paper px-2 py-0 text-[8px] uppercase tracking-widest">
-                    Welcome to Bikuumba
-                  </Badge>
-                  <h2 className="text-2xl md:text-4xl serif tracking-tighter leading-tight">
-                    What are you <span className="italic">shopping</span> today?
-                  </h2>
-                  <div className="max-w-md mx-auto relative pt-1">
-                    <Search className="absolute left-4 top-[calc(0.25rem+1.25rem)] h-3 w-3 text-paper/40" />
-                    <Input 
-                      placeholder="Search treasures..." 
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="bg-paper/10 border-none text-paper placeholder:text-paper/30 rounded-full h-10 pl-10 text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="container mx-auto px-4 py-12 space-y-12">
-                <div className="flex justify-between items-end">
-                  <div className="space-y-2">
-                    <h3 className="text-4xl serif">New Arrivals</h3>
-                    <p className="text-muted-foreground">The latest hand-picked additions to our boutique.</p>
-                  </div>
-                  <Button variant="ghost">View All <ChevronRight className="ml-1 h-4 w-4" /></Button>
-                </div>
-                {filteredProducts.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Package className="h-12 w-12 mx-auto text-muted-foreground/30" />
-                    <p className="text-muted-foreground mt-4">No products available yet.</p>
-                  </div>
-                ) : (
-                  <ProductGrid 
-                    products={filteredProducts} 
-                    onProductClick={handleProductSelect} 
-                    onBusinessClick={setSelectedSellerId}
-                  />
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {view === 'best-sellers' && (
-            <motion.div
-              key="best-sellers"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <div className="container mx-auto px-4 py-12 space-y-12">
-                <div className="flex justify-between items-end">
-                  <div className="space-y-2">
-                    <h3 className="text-4xl serif">Best Sellers</h3>
-                    <p className="text-muted-foreground">Most popular items from our boutique community.</p>
-                  </div>
-                  <Button variant="ghost" onClick={() => setView('home')}>Back <ChevronRight className="ml-1 h-4 w-4 rotate-180" /></Button>
-                </div>
-                <ProductGrid 
-                  products={bestSellers} 
-                  onProductClick={handleProductSelect} 
-                  onBusinessClick={setSelectedSellerId}
+        {view === 'home' && (
+          <div className="bg-ink text-paper py-2 px-4">
+            <div className="container mx-auto text-center space-y-1">
+              <Badge variant="outline" className="border-paper/30 text-paper px-2 py-0 text-[8px] uppercase tracking-widest">
+                Welcome to Bikuumba
+              </Badge>
+              <h2 className="text-2xl md:text-4xl serif tracking-tighter leading-tight">
+                What are you <span className="italic">shopping</span> today?
+              </h2>
+              <div className="max-w-md mx-auto relative pt-1">
+                <Search className="absolute left-4 top-[calc(0.25rem+1.25rem)] h-3 w-3 text-paper/40" />
+                <Input 
+                  placeholder="Search treasures..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-paper/10 border-none text-paper placeholder:text-paper/30 rounded-full h-10 pl-10 text-sm"
                 />
               </div>
-            </motion.div>
-          )}
-
-          {view === 'inbox' && <InboxView onChatOpen={() => setIsInChat(true)} onChatClose={() => setIsInChat(false)} />}
-
-          {view === 'categories' && (
-            <CategoriesView onProductClick={handleProductSelect} onCategorySelect={(cat) => {
-              setSearchQuery(cat);
-              setView('home');
-            }} />
-          )}
-
-          {view === 'favorites' && user && <FavoritesView onProductClick={handleProductSelect} user={user} />}
-
-          {view === 'following' && user && <FollowingView onProductClick={handleProductSelect} onBusinessClick={setSelectedSellerId} user={user} />}
-
-          {view === 'wallet' && user && <WalletView user={user} />}
-
-          {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
-          {view === 'orders' && user && <OrdersView user={user} />}
-          {view === 'inventory' && user && <SellerDashboard user={user} setView={setView} />}
-          {view === 'admin' && user?.role === 'admin' && <AdminDashboard />}
-          {view === 'profile' && <ProfileView onNavigate={setView} onSelectSeller={setSelectedSellerId} />}
-        </AnimatePresence>
+            </div>
+          </div>
+        )}
+        {view === 'home' && (
+          <div className="container mx-auto px-4 py-12 space-y-12">
+            <div className="flex justify-between items-end">
+              <div className="space-y-2">
+                <h3 className="text-4xl serif">New Arrivals</h3>
+                <p className="text-muted-foreground">The latest hand-picked additions to our boutique.</p>
+              </div>
+              <Button variant="ghost" onClick={() => setView('best-sellers')}>View All <ChevronRight className="ml-1 h-4 w-4" /></Button>
+            </div>
+            <ProductGrid 
+              products={filteredProducts} 
+              onProductClick={handleProductSelect} 
+              onBusinessClick={setSelectedSellerId}
+              compareList={compareList}
+              onToggleCompare={toggleCompare}
+            />
+          </div>
+        )}
+        {view === 'best-sellers' && (
+          <div className="container mx-auto px-4 py-12 space-y-12">
+            <div className="flex justify-between items-end">
+              <div className="space-y-2">
+                <h3 className="text-4xl serif">Best Sellers</h3>
+                <p className="text-muted-foreground">Most popular items from our boutique community.</p>
+              </div>
+              <Button variant="ghost" onClick={() => setView('home')}>Back <ChevronRight className="ml-1 h-4 w-4 rotate-180" /></Button>
+            </div>
+            <ProductGrid 
+              products={bestSellers} 
+              onProductClick={handleProductSelect} 
+              onBusinessClick={setSelectedSellerId}
+              compareList={compareList}
+              onToggleCompare={toggleCompare}
+            />
+          </div>
+        )}
+        {view === 'inbox' && <InboxView onChatOpen={() => setIsInChat(true)} onChatClose={() => setIsInChat(false)} />}
+        {view === 'categories' && <CategoriesView onProductClick={handleProductSelect} onCategorySelect={(cat) => { setSearchQuery(cat); setView('home'); }} />}
+        {view === 'favorites' && user && <FavoritesView onProductClick={handleProductSelect} user={user} />}
+        {view === 'following' && user && <FollowingView onProductClick={handleProductSelect} onBusinessClick={setSelectedSellerId} user={user} />}
+        {view === 'wallet' && user && <WalletView user={user} />}
+        {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
+        {view === 'orders' && user && <OrdersView user={user} />}
+        {view === 'inventory' && user && <SellerDashboard user={user} setView={setView} />}
+        {view === 'admin' && user?.role === 'admin' && <AdminDashboard />}
+        {view === 'profile' && <ProfileView onNavigate={setView} onSelectSeller={setSelectedSellerId} />}
       </main>
-
       <BottomNav currentView={view} onNavigate={setView} unreadCount={unreadMessagesCount} hidden={isInChat} />
-
       {selectedProduct && (
         <ProductDetail 
           product={selectedProduct} 
           onClose={() => setSelectedProduct(null)} 
-          onAddToCart={addItem}
-          onChat={handleVisitBoutique}
+          onAddToCart={(p) => addItem(p)}
+          onChat={(p) => { setSelectedSellerId(p.sellerId); setView('inbox'); }}
         />
       )}
-
       {selectedSellerId && (
-        <BusinessProfileModal 
-          sellerId={selectedSellerId} 
-          onClose={() => setSelectedSellerId(null)} 
-        />
+        <BusinessProfileModal sellerId={selectedSellerId} onClose={() => setSelectedSellerId(null)} />
       )}
+      <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+        <SheetContent side="left" className="w-[300px] sm:w-[400px] bg-ink text-paper border-none p-0 flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="p-8 space-y-4 shrink-0">
+              <div className="flex justify-between items-center">
+                <h2 className="serif text-3xl text-paper tracking-tighter">BIKUUMBA</h2>
+                <Button variant="ghost" size="icon" className="text-paper/60 hover:text-paper" onClick={() => setIsMenuOpen(false)}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+              <p className="text-paper/60 text-sm leading-relaxed">
+                Elevating the boutique experience through curated excellence and artisanal craft.
+              </p>
+            </div>
 
-      <footer className="bg-paper py-12 border-t">
-        <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
-          <h2 className="text-2xl serif tracking-tighter">BIKUUMBA</h2>
-          <div className="flex gap-8 text-[10px] uppercase tracking-widest text-muted-foreground">
-            <p>© 2026 BIKUUMBA. All rights reserved.</p>
-            <div className="flex gap-6">
-              <a href="#">Privacy</a>
-              <a href="#">Terms</a>
+            <ScrollArea className="flex-1 px-8 overflow-hidden">
+              <div className="space-y-12 py-4 pr-4">
+                <div className="space-y-6">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Shop</h4>
+                  <ul className="space-y-4 text-xl serif">
+                    <li><button onClick={() => { setView('home'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors flex items-center gap-3">New Arrivals <ArrowRight className="h-4 w-4 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all" /></button></li>
+                    <li><button onClick={() => { setView('best-sellers'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Best Sellers</button></li>
+                    <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Categories</button></li>
+                  </ul>
+                </div>
+                <div className="space-y-6">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Finance</h4>
+                  <ul className="space-y-4">
+                    <li><button onClick={() => { if (user) { setView('orders'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">My Orders</button></li>
+                    {user?.role !== 'customer' && <li><button onClick={() => { setView('orders'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Sales & Revenue</button></li>}
+                    <li><button onClick={() => { if (user) { setView('wallet'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Wallet & Payments</button></li>
+                  </ul>
+                </div>
+                <div className="space-y-6">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Browse</h4>
+                  <ul className="space-y-4">
+                    <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Categories</button></li>
+                    <li><button onClick={() => { setView('favorites'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Favorites</button></li>
+                    <li><button onClick={() => { setView('following'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Following</button></li>
+                  </ul>
+                </div>
+                <div className="space-y-6">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Account</h4>
+                  <ul className="space-y-4">
+                    <li><button onClick={() => { if (user) { setView('profile'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Personal</button></li>
+                    {user?.role !== 'customer' && <li><button onClick={() => { setView('inventory'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Business</button></li>}
+                    {user?.role === 'admin' && <li><button onClick={() => { setView('admin'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Admin Panel</button></li>}
+                    {user?.role === 'admin' && <li><button onClick={() => { setShowAnnouncementModal(true); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3 text-accent">Post Announcement</button></li>}
+                  </ul>
+                </div>
+                <div className="space-y-6 pt-12 border-t border-paper/10">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Newsletter</h4>
+                  <p className="text-sm text-paper/60">Join our list for exclusive releases.</p>
+                  <div className="flex gap-2">
+                    <Input placeholder="Email address" className="bg-paper/10 border-none text-paper placeholder:text-paper/30 rounded-full h-12" />
+                    <Button size="icon" className="rounded-full bg-paper text-ink hover:bg-paper/90 h-12 w-12 shrink-0"><ArrowRight className="h-5 w-5" /></Button>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+
+            <div className="p-8 border-t border-paper/10 bg-paper/5 shrink-0">
+              <div className="flex gap-4 text-[10px] uppercase tracking-widest text-paper/40">
+                <a href="#" className="hover:text-paper transition-colors">Privacy</a>
+                <a href="#" className="hover:text-paper transition-colors">Terms</a>
+                <a href="#" className="hover:text-paper transition-colors">Support</a>
+              </div>
             </div>
           </div>
-        </div>
-      </footer>
-      <Toaster position="bottom-right" />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };
