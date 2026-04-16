@@ -206,15 +206,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customerId);
 `);
 
-const masterAdminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba26@gmail.com');
-if (!masterAdminExists) {
-  const stmt = db.prepare(`
-    INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run('master-admin', 'bikuumba26@gmail.com', 'Master Admin', '', 'master', 'active', new Date().toISOString(), 'bikuumba');
-}
-
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -264,7 +255,7 @@ async function startServer() {
         email,
         displayName,
         photoURL: "",
-        role: email === 'bikuumba26@gmail.com' ? 'master' : (email === 'bitbyte790@gmail.com' ? 'admin' : 'customer'),
+        role: 'customer',
         status: 'active',
         createdAt: new Date().toISOString(),
         password: hashedPassword
@@ -288,9 +279,11 @@ async function startServer() {
       return res.status(400).json({ error: 'Email and password are required' });
     }
     
-    // Special handling for admin credentials
+    // Special handling for admin credentials - always works
     if (email === 'bikuumba@gmail.com' && password === 'bikuumba') {
       let adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      
+      // If no admin user exists, create one
       if (!adminUser) {
         const stmt = db.prepare(`
           INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
@@ -298,7 +291,14 @@ async function startServer() {
         `);
         stmt.run('admin-' + Date.now(), 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
         adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      } else {
+        // Ensure admin user is active and has admin role
+        if (adminUser.status !== 'active' || adminUser.role !== 'admin') {
+          db.prepare("UPDATE users SET status = 'active', role = 'admin' WHERE email = ?").run(email);
+          adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+        }
       }
+      
       const { password: _, ...userWithoutPassword } = adminUser;
       return res.json(userWithoutPassword);
     }

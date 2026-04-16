@@ -162,8 +162,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const displayName = decoded.name;
       const photoURL = decoded.picture;
 
-      // Check for admin emails
-      const isAdminEmail = email === 'bikuumba26@gmail.com' || email === 'bitbyte790@gmail.com' || email === 'bikuumba@gmail.com';
+      // Only bikuumba@gmail.com is admin
+      const isAdminEmail = email === 'bikuumba@gmail.com';
       
       let sqlUser = await api.get(`/users/${uid}`);
       if (!sqlUser) {
