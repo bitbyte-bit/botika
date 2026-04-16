@@ -89,7 +89,14 @@ db.exec(`
     trackingNumber TEXT,
     sellerIds TEXT,
     createdAt TEXT,
-    rentFee REAL DEFAULT 0
+    rentFee REAL DEFAULT 0,
+    receiverName TEXT,
+    phoneMTN TEXT,
+    phoneAirtel TEXT,
+    pickupOption TEXT,
+    deliveryAddress TEXT,
+    city TEXT,
+    deliveryConfirmation TEXT
   );
 
   CREATE TABLE IF NOT EXISTS messages (
@@ -597,24 +604,34 @@ async function startServer() {
     const orders = db.prepare("SELECT * FROM orders ORDER BY createdAt DESC").all();
     res.json(orders.map((o) => ({ 
       ...o, 
-      items: JSON.parse(o.items),
-      sellerIds: JSON.parse(o.sellerIds)
+      items: JSON.parse(o.items || '[]'),
+      sellerIds: JSON.parse(o.sellerIds || '[]'),
+      deliveryConfirmation: o.deliveryConfirmation ? JSON.parse(o.deliveryConfirmation) : undefined
     })));
   });
 
   app.post("/api/orders", (req, res) => {
-    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee } = req.body;
+    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation } = req.body;
     const stmt = db.prepare(`
-      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0);
+    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null);
     res.json({ success: true });
   });
 
   app.patch('/api/orders/:id/status', (req, res) => {
     const { status } = req.body;
     db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, req.params.id);
+    res.json({ success: true });
+  });
+
+  app.patch('/api/orders/:id/delivery-confirmation', (req, res) => {
+    const { deliveryConfirmation } = req.body;
+    const existing = db.prepare('SELECT deliveryConfirmation FROM orders WHERE id = ?').get(req.params.id);
+    const existingConfirmation = existing?.deliveryConfirmation ? JSON.parse(existing.deliveryConfirmation) : {};
+    const updatedConfirmation = { ...existingConfirmation, ...deliveryConfirmation };
+    db.prepare('UPDATE orders SET deliveryConfirmation = ? WHERE id = ?').run(JSON.stringify(updatedConfirmation), req.params.id);
     res.json({ success: true });
   });
 
@@ -634,7 +651,22 @@ async function startServer() {
     }
     
     const messages = db.prepare("SELECT * FROM messages WHERE receiverId = ? OR senderId = ? ORDER BY createdAt DESC").all(req.params.userId, req.params.userId);
-    res.json(messages.map((m) => ({ ...m, read: !!m.read })));
+    
+    const decryptedMessages = messages.map(m => {
+      const key = Buffer.from([requestingUserId, m.senderId === requestingUserId ? m.receiverId : m.senderId].sort().join('-')).toString('base64').substring(0, 32);
+      try {
+        const decoded = Buffer.from(m.content, 'base64').toString();
+        let result = '';
+        for (let i = 0; i < decoded.length; i++) {
+          result += String.fromCharCode(decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return { ...m, read: !!m.read, content: Buffer.from(result, 'base64').toString('utf8'), isEncrypted: false };
+      } catch {
+        return { ...m, read: !!m.read };
+      }
+    });
+    
+    res.json(decryptedMessages);
   });
 
   app.get("/api/conversations/:userId", (req, res) => {
@@ -649,6 +681,20 @@ async function startServer() {
       ORDER BY createdAt DESC
     `).all(userId, userId);
     
+    const decryptMsg = (content, otherUserId) => {
+      try {
+        const key = Buffer.from([userId, otherUserId].sort().join('-')).toString('base64').substring(0, 32);
+        const decoded = Buffer.from(content, 'base64').toString();
+        let result = '';
+        for (let i = 0; i < decoded.length; i++) {
+          result += String.fromCharCode(decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return Buffer.from(result, 'base64').toString('utf8');
+      } catch {
+        return content;
+      }
+    };
+    
     const conversations = [];
     const seenIds = new Set();
     
@@ -658,11 +704,15 @@ async function startServer() {
         seenIds.add(otherUserId);
         const otherUser = db.prepare("SELECT uid, displayName, photoURL FROM users WHERE uid = ?").get(otherUserId);
         const unreadResult = db.prepare("SELECT COUNT(*) as count FROM messages WHERE senderId = ? AND receiverId = ? AND read = 0").get(otherUserId, userId);
+        
+        const lastMessage = { ...msg };
+        lastMessage.content = decryptMsg(msg.content, otherUserId);
+        
         conversations.push({
           participantId: otherUserId,
           participantName: otherUser?.displayName || 'Unknown',
           participantPhoto: otherUser?.photoURL || '',
-          lastMessage: msg,
+          lastMessage,
           unreadCount: unreadResult?.count || 0
         });
       }
@@ -763,12 +813,51 @@ async function startServer() {
       return res.status(403).json({ error: 'Forbidden: You can only view your own conversations' });
     }
     
+    const key = Buffer.from([userId1, userId2].sort().join('-')).toString('base64').substring(0, 32);
+    
+    const encryptMsg = (msg) => {
+      try {
+        const encoded = Buffer.from(msg).toString('base64');
+        let result = '';
+        for (let i = 0; i < encoded.length; i++) {
+          result += String.fromCharCode(encoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return Buffer.from(result).toString('base64');
+      } catch {
+        return msg;
+      }
+    };
+    
+    const decryptMsg = (encrypted) => {
+      try {
+        const decoded = Buffer.from(encrypted, 'base64').toString();
+        let result = '';
+        for (let i = 0; i < decoded.length; i++) {
+          result += String.fromCharCode(decoded.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return Buffer.from(result, 'base64').toString('utf8');
+      } catch {
+        return encrypted;
+      }
+    };
+    
     const messages = db.prepare(`
       SELECT * FROM messages 
       WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
       ORDER BY createdAt ASC
     `).all(userId1, userId2, userId2, userId1);
-    res.json(messages.map((m) => ({ ...m, read: !!m.read })));
+    
+    const decryptedMessages = messages.map(m => {
+      const decryptedContent = decryptMsg(m.content);
+      return { 
+        ...m, 
+        read: !!m.read,
+        content: decryptedContent,
+        isEncrypted: false
+      };
+    });
+    
+    res.json(decryptedMessages);
   });
 
   app.post("/api/messages/attachments", (req, res) => {
@@ -813,6 +902,14 @@ async function startServer() {
   app.get("/api/users/status/:userId", (req, res) => {
     const status = db.prepare("SELECT * FROM user_status WHERE userId = ?").get(req.params.userId);
     res.json(status || { isOnline: false, lastSeen: null });
+  });
+
+  app.get("/api/user/:uid", (req, res) => {
+    const user = db.prepare("SELECT uid, displayName, photoURL, isOnline, lastSeen FROM users u LEFT JOIN user_status s ON u.uid = s.userId WHERE u.uid = ?").get(req.params.uid);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
   });
 
   app.get("/api/users/online", (req, res) => {

@@ -33,6 +33,7 @@ export interface User {
   bankName?: string;
   accountName?: string;
   hasCompletedAccountSetup?: boolean;
+  lastSeen?: string;
 }
 
 export interface Product {
@@ -126,6 +127,15 @@ export interface Order {
   deliveryAddress?: string;
   city?: string;
   statusHistory?: { status: string; updatedAt: string; note?: string }[];
+  deliveryConfirmation?: {
+    receiverName: string;
+    phoneNumber: string;
+    confirmedAt: string;
+    acceptanceStatus?: 'accepted' | 'denied';
+    denialReason?: string;
+    receiptGeneratedAt?: string;
+  };
+  rentFee?: number;
 }
 
 export interface CartItem {

@@ -41,7 +41,16 @@ import {
   Paperclip,
   Check,
   CheckCheck,
-  Share2
+  Share2,
+  Download,
+  Clipboard,
+  Copy,
+  QrCode,
+  FileText,
+  ThumbsUp,
+  ThumbsDown,
+  XCircle,
+  Ban
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -63,7 +72,7 @@ import { Toaster, toast } from 'sonner';
 
 import { User, Product, Order, CartItem, Review, Message, Follow, AppNotification, OperationType } from './types';
 import { api } from './services/api';
-import { requestNotificationPermission, subscribeToNewItems, sendPushNotification } from './services/push';
+import { requestNotificationPermission, subscribeToNewItems, sendPushNotification, onForegroundMessage } from './services/push';
 import { generateEncryptionKey, encryptMessage, decryptMessage } from './services/encryption';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -428,7 +437,7 @@ const handleEmailAuth = async (e: React.FormEvent) => {
   );
 };
 
-const BottomNav = ({ currentView, onNavigate, unreadCount = 0 }: { currentView: string, onNavigate: (view: string) => void, unreadCount?: number }) => {
+const BottomNav = ({ currentView, onNavigate, unreadCount = 0, hidden = false }: { currentView: string, onNavigate: (view: string) => void, unreadCount?: number, hidden?: boolean }) => {
   const { user, login } = useAuth();
 
   const handleBusinessClick = () => {
@@ -445,6 +454,8 @@ const BottomNav = ({ currentView, onNavigate, unreadCount = 0 }: { currentView: 
     { id: 'inventory', label: 'Business', icon: LayoutDashboard, action: handleBusinessClick },
     { id: 'profile', label: 'Profile', icon: UserIcon },
   ];
+
+  if (hidden) return null;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-background/80 backdrop-blur-lg border-t pb-safe">
@@ -485,7 +496,7 @@ interface Conversation {
   unreadCount: number;
 }
 
-const InboxView = () => {
+const InboxView = ({ onChatOpen, onChatClose }: { onChatOpen?: () => void; onChatClose?: () => void }) => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -500,6 +511,7 @@ const InboxView = () => {
   const [attachments, setAttachments] = useState<File[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [swipeAction, setSwipeAction] = useState<{ messageId: string; action: 'reply' | 'delete' } | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
 
   const handleSwipe = (msgId: string, direction: 'left' | 'right') => {
     if (direction === 'left') {
@@ -578,8 +590,34 @@ const handleSearch = useCallback(async () => {
   useEffect(() => {
     fetchInbox();
     const interval = setInterval(fetchInbox, 5000);
+    
+    const handleForegroundMessage = (payload: any) => {
+      if (payload.data?.type === 'message') {
+        fetchInbox();
+        if (selectedChat && payload.data.senderId === selectedChat.uid) {
+          (async () => {
+            const msgs = await api.get(`/messages/conversation/${user?.uid}/${selectedChat.uid}?currentUserId=${user?.uid}`);
+            setChatMessages(msgs);
+          })();
+        } else {
+          toast.info(`New message from ${payload.notification?.title || 'someone'}`);
+        }
+      }
+    };
+    
+    onForegroundMessage(handleForegroundMessage);
+    
     return () => clearInterval(interval);
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !selectedChat) return;
+    const interval = setInterval(async () => {
+      const msgs = await api.get(`/messages/conversation/${user.uid}/${selectedChat.uid}?currentUserId=${user.uid}`);
+      setChatMessages(msgs);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [user, selectedChat]);
 
   useEffect(() => {
     if (user) {
@@ -596,6 +634,7 @@ const handleSearch = useCallback(async () => {
 
   const openChat = async (chatUser: User) => {
     setSelectedChat(chatUser);
+    onChatOpen?.();
     if (user) {
       const msgs = await api.get(`/messages/conversation/${user.uid}/${chatUser.uid}?currentUserId=${user.uid}`);
       setChatMessages(msgs);
@@ -722,9 +761,9 @@ const handleSearch = useCallback(async () => {
 
   if (selectedChat) {
     return (
-      <div className="container mx-auto px-4 py-4 pb-24 h-screen flex flex-col">
+      <div className="container mx-auto px-4 py-4 h-screen flex flex-col">
         <div className="flex items-center gap-4 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => setSelectedChat(null)}>
+          <Button variant="ghost" size="icon" onClick={() => { setSelectedChat(null); onChatClose?.(); }}>
             <ChevronRight className="h-5 w-5 rotate-180" />
           </Button>
           <Avatar className="h-10 w-10">
@@ -939,34 +978,86 @@ const handleSearch = useCallback(async () => {
         </TabsList>
 
         <TabsContent value="messages" className="mt-6 space-y-4">
-          {messages.length === 0 ? (
-            <p className="text-center py-10 text-muted-foreground">No messages yet.</p>
-          ) : (
-            messages.map(msg => (
-              <Card 
-                key={msg.id} 
-                className={`border-none shadow-sm transition-colors cursor-pointer ${msg.read ? 'bg-paper' : 'bg-accent/5'}`}
-                onClick={() => markMessageAsRead(msg.id)}
-              >
-                <CardContent className="p-4 flex gap-4">
-                  <div className="relative">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback>{msg.senderName[0]}</AvatarFallback>
-                    </Avatar>
-                    {!msg.read && (
-                      <div className="absolute -top-1 -right-1 h-3 w-3 bg-accent rounded-full border-2 border-background" />
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex justify-between items-center">
-                      <p className={`text-sm ${msg.read ? 'font-medium' : 'font-bold'}`}>{msg.senderName}</p>
-                      <span className="text-[10px] text-muted-foreground">{new Date(msg.createdAt).toLocaleDateString()}</span>
+          {conversations.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Recent Chats</h3>
+              {conversations.map((conv) => (
+                <Card 
+                  key={conv.participantId} 
+                  className="border-none shadow-sm transition-colors cursor-pointer bg-secondary/30 hover:bg-secondary/50"
+                  onClick={async () => {
+                    const chatUser = await api.get(`/users/${conv.participantId}`);
+                    if (chatUser) openChat(chatUser);
+                  }}
+                >
+                  <CardContent className="p-3 flex gap-3 items-center">
+                    <div className="relative">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={conv.participantPhoto || undefined} />
+                        <AvatarFallback>{conv.participantName[0]}</AvatarFallback>
+                      </Avatar>
+                      {conv.unreadCount > 0 && (
+                        <div className="absolute -top-1 -right-1 h-4 w-4 bg-accent rounded-full border-2 border-background flex items-center justify-center">
+                          <span className="text-[10px] text-white font-bold">{conv.unreadCount > 9 ? '9+' : conv.unreadCount}</span>
+                        </div>
+                      )}
                     </div>
-                    <p className={`text-sm ${msg.read ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>{(msg as any).isEncrypted && msg.receiverId === user?.uid ? decryptMessage(msg.content, generateEncryptionKey(user.uid, msg.senderId)) : msg.content}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center">
+                        <p className="text-sm font-medium truncate">{conv.participantName}</p>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(conv.lastMessage.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {conv.lastMessage.senderId === user?.uid ? 'You: ' : ''}
+                        {conv.lastMessage.type === 'image' ? 'Sent an image' : 
+                         conv.lastMessage.type === 'file' ? 'Sent a file' : 
+                         (() => {
+                           try {
+                             return conv.lastMessage.content.substring(0, 30);
+                           } catch {
+                             return 'New message';
+                           }
+                         })()}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          {messages.length === 0 && conversations.length === 0 ? (
+            <p className="text-center py-10 text-muted-foreground">No messages yet. Start a conversation by searching for users.</p>
+          ) : messages.length > 0 && (
+            <div className="space-y-2 pt-4 border-t">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">All Messages</h3>
+              {messages.map(msg => (
+                <Card 
+                  key={msg.id} 
+                  className={`border-none shadow-sm transition-colors cursor-pointer ${msg.read ? 'bg-paper' : 'bg-accent/5'}`}
+                  onClick={() => markMessageAsRead(msg.id)}
+                >
+                  <CardContent className="p-4 flex gap-4">
+                    <div className="relative">
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback>{msg.senderName[0]}</AvatarFallback>
+                      </Avatar>
+                      {!msg.read && (
+                        <div className="absolute -top-1 -right-1 h-3 w-3 bg-accent rounded-full border-2 border-background" />
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex justify-between items-center">
+                        <p className={`text-sm ${msg.read ? 'font-medium' : 'font-bold'}`}>{msg.senderName}</p>
+                        <span className="text-[10px] text-muted-foreground">{new Date(msg.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <p className={`text-sm ${msg.read ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>{(msg as any).isEncrypted && msg.receiverId === user?.uid ? decryptMessage(msg.content, generateEncryptionKey(user.uid, msg.senderId)) : msg.content}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
         </TabsContent>
 
@@ -1174,11 +1265,6 @@ const handleChat = async () => {
                     <div className="aspect-square rounded-xl overflow-hidden bg-secondary">
                       <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" />
                     </div>
-                    {p.discount && p.discount > 0 && (
-                      <Badge className="absolute top-2 left-2 bg-red-600 text-white">
-                        -{p.discount}%
-                      </Badge>
-                    )}
                     <Button 
                       size="icon" 
                       className="absolute bottom-2 right-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-paper shadow-lg"
@@ -1229,8 +1315,31 @@ const AdminDashboard = () => {
   const [denialReason, setDenialReason] = useState('');
   const [showDenyModal, setShowDenyModal] = useState<string | null>(null);
   const [businessTab, setBusinessTab] = useState<'pending' | 'approved' | 'denied'>('pending');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [businessSearch, setBusinessSearch] = useState('');
   const { formatPrice } = useCurrency();
   const { user: currentUser } = useAuth();
+
+  const filteredOrders = orderSearch.trim() 
+    ? orders.filter(o => 
+        o.id.toLowerCase().includes(orderSearch.toLowerCase()) ||
+        o.customerId.toLowerCase().includes(orderSearch.toLowerCase()) ||
+        o.sellerIds.some(s => s.toLowerCase().includes(orderSearch.toLowerCase())) ||
+        new Date(o.createdAt).toLocaleDateString().includes(orderSearch) ||
+        o.total.toString().includes(orderSearch) ||
+        (o.receiverName && o.receiverName.toLowerCase().includes(orderSearch.toLowerCase()))
+      )
+    : orders;
+
+  const filteredBusinessUsers = businessSearch.trim()
+    ? users.filter(u => 
+        u.displayName?.toLowerCase().includes(businessSearch.toLowerCase()) ||
+        u.email?.toLowerCase().includes(businessSearch.toLowerCase()) ||
+        u.phoneAirtel?.includes(businessSearch) ||
+        u.phoneMTN?.includes(businessSearch) ||
+        u.businessName?.toLowerCase().includes(businessSearch.toLowerCase())
+      )
+    : users;
 
   const fetchData = async () => {
     try {
@@ -1326,7 +1435,8 @@ const AdminDashboard = () => {
           <TabsTrigger value="users" className="rounded-full px-8">Users</TabsTrigger>
           <TabsTrigger value="products" className="rounded-full px-8">Products</TabsTrigger>
           <TabsTrigger value="orders" className="rounded-full px-8">Orders</TabsTrigger>
-          <TabsTrigger value="business" className="rounded-full px-8">Business Forms</TabsTrigger>
+          <TabsTrigger value="business" className="rounded-full px-8">Users</TabsTrigger>
+          <TabsTrigger value="verify" className="rounded-full px-8">Verify</TabsTrigger>
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
@@ -1450,7 +1560,147 @@ const AdminDashboard = () => {
           </Card>
         </TabsContent>
 
+        <TabsContent value="orders" className="space-y-4">
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search by order ID, customer name, business, date (e.g. 04/16/2026) or amount..."
+                value={orderSearch}
+                onChange={(e) => setOrderSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <p className="text-sm text-muted-foreground self-center">{filteredOrders.length} orders</p>
+          </div>
+          <Card className="border-none bg-paper shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-muted-foreground uppercase tracking-widest text-[10px]">
+                    <th className="p-4 font-medium">Order ID</th>
+                    <th className="p-4 font-medium">Customer</th>
+                    <th className="p-4 font-medium">Sellers</th>
+                    <th className="p-4 font-medium">Total</th>
+                    <th className="p-4 font-medium">Status</th>
+                    <th className="p-4 font-medium">Date</th>
+                    <th className="p-4 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOrders.map(order => (
+                    <tr key={order.id} className="border-b last:border-0">
+                      <td className="p-4 font-mono text-xs">#{order.id.slice(-8).toUpperCase()}</td>
+                      <td className="p-4">
+                        <p className="text-xs">{order.receiverName || order.customerId.slice(0, 8)}...</p>
+                        {order.phoneMTN && <p className="text-xs text-muted-foreground">MTN: {order.phoneMTN}</p>}
+                        {order.phoneAirtel && <p className="text-xs text-muted-foreground">Airtel: {order.phoneAirtel}</p>}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex flex-wrap gap-1">
+                          {order.sellerIds.slice(0, 2).map((sid, i) => (
+                            <Badge key={i} variant="secondary" className="text-[10px]">{sid.slice(0, 6)}...</Badge>
+                          ))}
+                          {order.sellerIds.length > 2 && <Badge variant="secondary" className="text-[10px]">+{order.sellerIds.length - 2}</Badge>}
+                        </div>
+                      </td>
+                      <td className="p-4 font-medium">{formatPrice(order.total)}</td>
+                      <td className="p-4">
+                        <Badge variant={order.status === 'delivered' ? 'default' : order.status === 'cancelled' ? 'destructive' : 'secondary'} className="capitalize">
+                          {order.status}
+                        </Badge>
+                      </td>
+                      <td className="p-4 text-muted-foreground">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="p-4 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          navigator.clipboard.writeText(order.id);
+                          toast.success('Order ID copied!');
+                        }}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="business" className="space-y-4">
+          <div className="flex gap-2 mb-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search by name, phone, email, or business name..."
+                value={businessSearch}
+                onChange={(e) => setBusinessSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">{filteredBusinessUsers.length} users/businesses</p>
+          <Card className="border-none bg-paper shadow-sm">
+            <div className="overflow-x-auto max-h-96">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-paper">
+                  <tr className="border-b text-left text-muted-foreground uppercase tracking-widest text-[10px]">
+                    <th className="p-4 font-medium">User/Business</th>
+                    <th className="p-4 font-medium">Contact</th>
+                    <th className="p-4 font-medium">Role</th>
+                    <th className="p-4 font-medium">Status</th>
+                    <th className="p-4 font-medium text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBusinessUsers.map(u => (
+                    <tr key={u.uid} className="border-b last:border-0">
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={u.photoURL} />
+                            <AvatarFallback>{u.displayName?.[0]}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium">{u.displayName}</p>
+                            {u.businessName && <p className="text-xs text-muted-foreground">{u.businessName}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <p className="text-xs">{u.email}</p>
+                        {u.phoneAirtel && <p className="text-xs text-red-600">Airtel: {u.phoneAirtel}</p>}
+                        {u.phoneMTN && <p className="text-xs text-yellow-600">MTN: {u.phoneMTN}</p>}
+                      </td>
+                      <td className="p-4 capitalize">{u.role}</td>
+                      <td className="p-4">
+                        <Badge variant={u.isOnline ? 'default' : 'secondary'} className="capitalize">
+                          {u.isOnline ? 'Active' : 'Offline'}
+                        </Badge>
+                        {!u.isOnline && u.lastSeen && (
+                          <p className="text-[10px] text-muted-foreground">Last seen: {new Date(u.lastSeen).toLocaleDateString()}</p>
+                        )}
+                      </td>
+                      <td className="p-4 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          setSelectedUser(u);
+                          const warnings = api.get(`/users/${u.uid}/warnings`);
+                          setUserWarnings(warnings as any);
+                        }}>
+                          View
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="verify" className="space-y-4">
           <div className="flex gap-2 mb-4">
             <Button 
               variant={businessTab === 'pending' ? 'default' : 'outline'} 
@@ -2818,7 +3068,15 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [accountSetupData, setAccountSetupData] = useState({ bankName: '', accountName: '' });
   const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const { formatPrice } = useCurrency();
+
+  const copyOrderId = (orderId: string) => {
+    navigator.clipboard.writeText(orderId);
+    setCopiedOrderId(orderId);
+    toast.success('Order ID copied!');
+    setTimeout(() => setCopiedOrderId(null), 2000);
+  };
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     name: '',
     description: '',
@@ -2835,6 +3093,16 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     bulkDiscountPercent: 0,
     condition: 'new'
   });
+
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+      await api.patch(`/orders/${orderId}/status`, { status: newStatus });
+      fetchData();
+      toast.success(`Order marked as ${newStatus}`);
+    } catch (error) {
+      toast.error('Failed to update order status');
+    }
+  };
 
   const fetchData = async () => {
     if (user.role === 'customer') return;
@@ -3242,7 +3510,12 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
-                        <CardTitle className="serif text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
+                        <CardTitle className="serif text-lg flex items-center gap-2">
+                          Order #{order.id.slice(0, 8)}
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyOrderId(order.id)}>
+                            {copiedOrderId === order.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                          </Button>
+                        </CardTitle>
                         <CardDescription>
                           {new Date(order.createdAt).toLocaleDateString()} • {order.items.length} items
                         </CardDescription>
@@ -3380,6 +3653,11 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               <div className="aspect-video relative overflow-hidden bg-secondary">
                 <img src={product.images[0]} alt={product.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" referrerPolicy="no-referrer" />
                 <div className="absolute top-2 right-2 flex gap-1">
+                  {product.discount && product.discount > 0 && (
+                    <Badge className="bg-red-600 text-white">
+                      -{product.discount}%
+                    </Badge>
+                  )}
                   <Badge className="bg-paper/90 text-ink backdrop-blur-sm border-none">
                     <Eye className="h-3 w-3 mr-1" /> {product.visitCount || 0}
                   </Badge>
@@ -3612,7 +3890,59 @@ await api.post('/business/verify', {
 const OrdersView = ({ user }: { user: User }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  const [showDeliveryForm, setShowDeliveryForm] = useState(false);
+  const [deliveryData, setDeliveryData] = useState({ receiverName: '', phoneNumber: '' });
+  const [showAcceptDeny, setShowAcceptDeny] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [denialReason, setDenialReason] = useState('');
   const { formatPrice } = useCurrency();
+
+  const copyOrderId = (orderId: string) => {
+    navigator.clipboard.writeText(orderId);
+    setCopiedOrderId(orderId);
+    toast.success('Order ID copied!');
+    setTimeout(() => setCopiedOrderId(null), 2000);
+  };
+
+  const handleDeliveryConfirmation = async (orderId: string) => {
+    try {
+      await api.patch(`/orders/${orderId}/delivery-confirmation`, {
+        deliveryConfirmation: {
+          receiverName: deliveryData.receiverName,
+          phoneNumber: deliveryData.phoneNumber,
+          confirmedAt: new Date().toISOString()
+        }
+      });
+      toast.success('Delivery confirmed!');
+      setShowDeliveryForm(false);
+      fetchOrders();
+    } catch (error) {
+      toast.error('Failed to confirm delivery');
+    }
+  };
+
+  const handleAcceptDeny = async (orderId: string, accepted: boolean) => {
+    try {
+      await api.patch(`/orders/${orderId}/delivery-confirmation`, {
+        deliveryConfirmation: {
+          ...selectedOrder?.deliveryConfirmation,
+          acceptanceStatus: accepted ? 'accepted' : 'denied',
+          denialReason: accepted ? '' : denialReason,
+          receiptGeneratedAt: accepted ? new Date().toISOString() : undefined
+        }
+      });
+      if (accepted) {
+        toast.success('Product accepted! Receipt generated.');
+      } else {
+        toast.error('Product denied. A dispute has been opened.');
+      }
+      setShowAcceptDeny(false);
+      fetchOrders();
+    } catch (error) {
+      toast.error('Failed to process acceptance');
+    }
+  };
 
   const fetchOrders = async () => {
     try {
@@ -3675,7 +4005,12 @@ const OrdersView = ({ user }: { user: User }) => {
                   <div className='flex justify-between items-start'>
                     <div>
                       <p className='text-xs uppercase tracking-widest text-muted-foreground mb-1'>Order ID</p>
-                      <p className='font-mono text-sm'>#{order.id.slice(-8).toUpperCase()}</p>
+                      <div className='flex items-center gap-2'>
+                        <p className='font-mono text-sm'>#{order.id.slice(-8).toUpperCase()}</p>
+                        <Button variant='ghost' size='icon' className='h-6 w-6' onClick={() => copyOrderId(order.id)}>
+                          {copiedOrderId === order.id ? <Check className='h-3 w-3' /> : <Copy className='h-3 w-3' />}
+                        </Button>
+                      </div>
                     </div>
                     <Badge variant='secondary' className='flex items-center gap-1.5 px-3 py-1'>
                       {getStatusIcon(order.status)}
@@ -3803,15 +4138,200 @@ const OrdersView = ({ user }: { user: User }) => {
                 </div>
               )}
 
-              {user.role === 'customer' && selectedOrder.status === 'shipped' && (
-                <Button className='w-full' onClick={() => handleUpdateStatus(selectedOrder.id, 'delivered')}>Confirm Received</Button>
+              {user.role === 'customer' && selectedOrder.status === 'shipped' && !selectedOrder.deliveryConfirmation && (
+                <Button className='w-full' onClick={() => setShowDeliveryForm(true)}>Confirm Receipt</Button>
+              )}
+
+              {showDeliveryForm && (
+                <div className='space-y-4 p-4 bg-secondary/30 rounded-lg'>
+                  <p className='text-sm font-medium'>Confirm Delivery</p>
+                  <div className='space-y-2'>
+                    <Label className='text-xs'>Receiver Name</Label>
+                    <Input 
+                      value={deliveryData.receiverName}
+                      onChange={(e) => setDeliveryData({...deliveryData, receiverName: e.target.value})}
+                      placeholder='Enter receiver name'
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label className='text-xs'>Phone Number</Label>
+                    <Input 
+                      value={deliveryData.phoneNumber}
+                      onChange={(e) => setDeliveryData({...deliveryData, phoneNumber: e.target.value})}
+                      placeholder='+256 7xx xxx xxx'
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label className='text-xs'>Order ID</Label>
+                    <Input 
+                      value={selectedOrder.id}
+                      onChange={() => {}}
+                      placeholder='Paste order ID here'
+                    />
+                  </div>
+                  <div className='flex gap-2'>
+                    <Button className='flex-1' onClick={() => handleDeliveryConfirmation(selectedOrder.id)} disabled={!deliveryData.receiverName || !deliveryData.phoneNumber}>
+                      Confirm Delivery
+                    </Button>
+                    <Button variant='outline' onClick={() => setShowDeliveryForm(false)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+
+              {selectedOrder.deliveryConfirmation && !selectedOrder.deliveryConfirmation.acceptanceStatus && (
+                <Button className='w-full' onClick={() => setShowAcceptDeny(true)}>Accept or Deny Product</Button>
+              )}
+
+              {showAcceptDeny && selectedOrder.deliveryConfirmation && (
+                <div className='space-y-4 p-4 bg-secondary/30 rounded-lg'>
+                  <p className='text-sm font-medium'>Final Confirmation</p>
+                  <p className='text-xs text-muted-foreground'>
+                    Confirmed by: {selectedOrder.deliveryConfirmation.receiverName} 
+                    ({selectedOrder.deliveryConfirmation.phoneNumber})
+                  </p>
+                  <div className='space-y-2'>
+                    <Label className='text-xs'>Reason for denial (if not legit)</Label>
+                    <Textarea 
+                      value={denialReason}
+                      onChange={(e) => setDenialReason(e.target.value)}
+                      placeholder='Explain why product is not legitimate...'
+                      rows={3}
+                    />
+                  </div>
+                  <div className='flex gap-2'>
+                    <Button className='flex-1 bg-green-600 hover:bg-green-700' onClick={() => handleAcceptDeny(selectedOrder.id, true)}>
+                      <ThumbsUp className='mr-2 h-4 w-4' /> Accept
+                    </Button>
+                    <Button variant='destructive' className='flex-1' onClick={() => handleAcceptDeny(selectedOrder.id, false)} disabled={!denialReason}>
+                      <ThumbsDown className='mr-2 h-4 w-4' /> Deny
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+{user.role === 'customer' && selectedOrder.deliveryConfirmation?.acceptanceStatus && (
+                <Button className='w-full' onClick={() => setShowReceipt(true)}>
+                  <Download className='mr-2 h-4 w-4' /> Download Receipt
+                </Button>
               )}
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showReceipt} onOpenChange={() => setShowReceipt(false)}>
+        <DialogContent className='max-w-2xl max-h-[90vh] overflow-y-auto'>
+          <DialogHeader>
+            <DialogTitle className='serif text-2xl'>Official Receipt</DialogTitle>
+            <DialogDescription>Order #{selectedOrder?.id.slice(-8).toUpperCase()}</DialogDescription>
+          </DialogHeader>
+          {selectedOrder && (
+            <div className='space-y-4 text-sm' id='receipt-content'>
+              <div className='bg-accent text-accent-foreground p-4 rounded-lg'>
+                <div className='flex justify-between items-start'>
+                  <div>
+                    <h3 className='text-xl font-serif'>BIKUUMBA</h3>
+                    <p className='text-xs opacity-70'>Curated Boutique</p>
+                    <p className='text-xs opacity-70'>Kampala, Uganda</p>
+                    <p className='text-xs opacity-70'>www.bikuumba.com</p>
+                  </div>
+                  <div className='text-right'>
+                    <p className='text-xs opacity-70'>Receipt #: {selectedOrder.id.slice(-8).toUpperCase()}</p>
+                    <p className='text-xs opacity-70'>Date: {new Date(selectedOrder.deliveryConfirmation?.receiptGeneratedAt || new Date()).toLocaleDateString()}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className='border-t border-b py-4'>
+                <p className='text-xs font-bold mb-2'>ORDER DETAILS</p>
+                <table className='w-full text-xs'>
+                  <thead>
+                    <tr className='text-left text-muted-foreground'>
+                      <th className='pb-2'>Item</th>
+                      <th className='pb-2 text-center'>Qty</th>
+                      <th className='pb-2 text-right'>Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedOrder.items.map((item, idx) => (
+                      <tr key={idx}>
+                        <td className='py-1'>{item.name}</td>
+                        <td className='py-1 text-center'>{item.quantity}</td>
+                        <td className='py-1 text-right'>{formatPrice(item.price * item.quantity)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className='flex justify-between border-t pt-2 mt-2'>
+                  <span className='font-medium'>Total Paid</span>
+                  <span className='font-medium'>{formatPrice(selectedOrder.total)}</span>
+                </div>
+              </div>
+
+              <div className='grid grid-cols-2 gap-4 text-xs'>
+                <div>
+                  <p className='font-bold'>DELIVERY CONFIRMATION</p>
+                  <p>Receiver: {selectedOrder.deliveryConfirmation?.receiverName}</p>
+                  <p>Phone: {selectedOrder.deliveryConfirmation?.phoneNumber}</p>
+                  <p>Confirmed: {selectedOrder.deliveryConfirmation?.confirmedAt ? new Date(selectedOrder.deliveryConfirmation.confirmedAt).toLocaleString() : 'N/A'}</p>
+                </div>
+                <div>
+                  <p className='font-bold'>STATUS</p>
+                  <p>Delivery Status: {selectedOrder.deliveryConfirmation?.acceptanceStatus === 'accepted' ? 'ACCEPTED' : selectedOrder.deliveryConfirmation?.acceptanceStatus === 'denied' ? 'DENIED' : 'PENDING'}</p>
+                  {selectedOrder.deliveryConfirmation?.denialReason && (
+                    <p>Denial Reason: {selectedOrder.deliveryConfirmation.denialReason}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className='flex justify-between items-start pt-4 border-t'>
+                <div className='text-xs text-muted-foreground'>
+                  <p className='font-bold'>BUSINESS DETAILS</p>
+                  <p>Seller IDs: {selectedOrder.sellerIds.join(', ')}</p>
+                  <p>Payment ID: {selectedOrder.paymentId || 'N/A'}</p>
+                </div>
+                <div className='flex flex-col items-center'>
+                  <p className='text-xs mb-1'>Scan for Bikuumba</p>
+                  <div className='w-16 h-16 bg-black/5 flex items-center justify-center rounded'>
+                    <QrCode className='h-12 w-12' />
+                  </div>
+                </div>
+              </div>
+
+              <Button className='w-full' onClick={() => {
+                const printContent = document.getElementById('receipt-content');
+                if (printContent) {
+                  const printWindow = window.open('', '_blank');
+                  if (printWindow) {
+                    printWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>Receipt - ${selectedOrder.id.slice(-8).toUpperCase()}</title>
+                          <style>
+                            @media print {
+                              body { font-size: 10px; font-family: Arial, sans-serif; }
+                              .page-break { page-break-before: always; }
+                            }
+                            body { max-width: 600px; margin: 0 auto; padding: 10px; }
+                            * { font-size: 10px; line-height: 1.2; }
+                          </style>
+                        </head>
+                        <body>${printContent.innerHTML}</body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.print();
+                  }
+                }
+              }}>
+                <Download className='mr-2 h-4 w-4' /> Print/Download Receipt
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
-);
+  );
 };
 
 const MarzPay = ({ amount, onSuccess }: { amount: number, onSuccess: (details: any) => void }) => {
@@ -4200,7 +4720,12 @@ const AppContent = () => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [menuSection, setMenuSection] = useState<string | null>(null);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [announcement, setAnnouncement] = useState<{text: string, theme: string, fontSize: string, padding: string, borderRadius: string, duration: number, closable: boolean} | null>(null);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [announcementData, setAnnouncementData] = useState({ text: '', theme: 'accent', fontSize: 'text-sm', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true });
+  const [isInChat, setIsInChat] = useState(false);
   const { user, login } = useAuth();
   const { addItem } = useCart();
   const { formatPrice } = useCurrency();
@@ -4311,7 +4836,20 @@ const AppContent = () => {
                   </ul>
                 </div>
                 <div className="space-y-6">
-                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Settings</h4>
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Finance</h4>
+                  <ul className="space-y-4">
+                    <li><button onClick={() => { if (user) { setView('orders'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">My Orders</button></li>
+                    {user?.role !== 'customer' && <li><button onClick={() => { setView('orders'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Sales & Revenue</button></li>}
+                    <li><button onClick={() => { if (user) { setView('profile'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Wallet & Payments</button></li>
+                  </ul>
+                </div>
+                <div className="space-y-6">
+                  <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Account</h4>
+                  <ul className="space-y-4">
+                    <li><button onClick={() => { if (user) { setView('profile'); } else { login(); } setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Personal</button></li>
+                    {user?.role !== 'customer' && <li><button onClick={() => { setView('inventory'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Business</button></li>}
+                    <li><button onClick={() => { setMenuSection(menuSection === 'personal' ? null : 'personal'); }} className="hover:text-accent transition-colors text-sm flex items-center gap-3">Other Settings</button></li>
+                  </ul>
                 </div>
                 <div className="space-y-6 pt-12 border-t border-paper/10">
                   <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Newsletter</h4>
@@ -4332,8 +4870,136 @@ const AppContent = () => {
               </div>
             </div>
           </div>
-        </SheetContent>
+</SheetContent>
       </Sheet>
+
+      {announcement && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`fixed top-16 left-0 right-0 z-40 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable ? 'cursor-pointer' : ''}`}
+          style={{
+            fontSize: announcement.fontSize,
+            padding: announcement.padding,
+            borderRadius: announcement.borderRadius,
+          }}
+          onClick={() => {
+            if (announcement.closable) {
+              setAnnouncement(null);
+            }
+          }}
+        >
+          <div className="container mx-auto text-center text-paper font-medium">
+            {announcement.text}
+          </div>
+        </motion.div>
+      )}
+
+      {user?.role === 'admin' && (
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          className="fixed bottom-4 right-4 z-50 rounded-full bg-accent text-accent-foreground"
+          onClick={() => setShowAnnouncementModal(true)}
+        >
+          <Send className="h-4 w-4 mr-2" /> Announcement
+        </Button>
+      )}
+
+      <Dialog open={showAnnouncementModal} onOpenChange={setShowAnnouncementModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="serif text-2xl">Post Announcement</DialogTitle>
+            <DialogDescription>Create a banner announcement for all users</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Announcement Text</Label>
+              <Textarea 
+                placeholder="Enter your announcement..."
+                value={announcementData.text}
+                onChange={(e) => setAnnouncementData({...announcementData, text: e.target.value})}
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Theme Color</Label>
+                <Select value={announcementData.theme} onValueChange={(val) => setAnnouncementData({...announcementData, theme: val})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="accent">Default</SelectItem>
+                    <SelectItem value="red">Red</SelectItem>
+                    <SelectItem value="green">Green</SelectItem>
+                    <SelectItem value="blue">Blue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Font Size</Label>
+                <Select value={announcementData.fontSize} onValueChange={(val) => setAnnouncementData({...announcementData, fontSize: val})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text-xs">Small</SelectItem>
+                    <SelectItem value="text-sm">Medium</SelectItem>
+                    <SelectItem value="text-base">Large</SelectItem>
+                    <SelectItem value="text-lg">Extra Large</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Padding</Label>
+                <Input 
+                  placeholder="e.g. 8px 16px"
+                  value={announcementData.padding}
+                  onChange={(e) => setAnnouncementData({...announcementData, padding: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Border Radius</Label>
+                <Input 
+                  placeholder="e.g. 8px"
+                  value={announcementData.borderRadius}
+                  onChange={(e) => setAnnouncementData({...announcementData, borderRadius: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Duration (minutes)</Label>
+              <Input 
+                type="number"
+                placeholder="60 = 1 hour"
+                value={announcementData.duration}
+                onChange={(e) => setAnnouncementData({...announcementData, duration: Number(e.target.value)})}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox" 
+                checked={announcementData.closable}
+                onChange={(e) => setAnnouncementData({...announcementData, closable: e.target.checked})}
+              />
+              <Label>Closable by users</Label>
+            </div>
+            <Button className="w-full" onClick={() => {
+              if (!announcementData.text.trim()) {
+                toast.error('Please enter announcement text');
+                return;
+              }
+              setAnnouncement(announcementData);
+              toast.success('Announcement posted!');
+              setShowAnnouncementModal(false);
+              if (announcementData.duration > 0) {
+                setTimeout(() => setAnnouncement(null), announcementData.duration * 60 * 1000);
+              }
+            }}>
+              Post Announcement
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <main className="flex-1">
         <AnimatePresence mode="wait">
@@ -4411,7 +5077,7 @@ const AppContent = () => {
             </motion.div>
           )}
 
-          {view === 'inbox' && <InboxView />}
+          {view === 'inbox' && <InboxView onChatOpen={() => setIsInChat(true)} onChatClose={() => setIsInChat(false)} />}
 
           {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
           {view === 'orders' && user && <OrdersView user={user} />}
@@ -4421,7 +5087,7 @@ const AppContent = () => {
         </AnimatePresence>
       </main>
 
-      <BottomNav currentView={view} onNavigate={setView} unreadCount={unreadMessagesCount} />
+      <BottomNav currentView={view} onNavigate={setView} unreadCount={unreadMessagesCount} hidden={isInChat} />
 
       {selectedProduct && (
         <ProductDetail 
