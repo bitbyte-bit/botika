@@ -1226,6 +1226,9 @@ const AdminDashboard = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [userWarnings, setUserWarnings] = useState<any[]>([]);
   const [warningReason, setWarningReason] = useState('');
+  const [denialReason, setDenialReason] = useState('');
+  const [showDenyModal, setShowDenyModal] = useState<string | null>(null);
+  const [businessTab, setBusinessTab] = useState<'pending' | 'approved' | 'denied'>('pending');
   const { formatPrice } = useCurrency();
   const { user: currentUser } = useAuth();
 
@@ -1248,13 +1251,22 @@ const AdminDashboard = () => {
     }
   };
 
-useEffect(() => {
-    fetchData();
-  }, []);
-
   const handleApprove = async (userId: string, approved: boolean) => {
     try {
-      await api.post('/business/approve', { userId, approved, reviewedBy: 'admin' });
+      if (!approved && denialReason) {
+        await api.post('/business/approve', { userId, approved: false, reviewedBy: 'admin', denialReason });
+        await api.post('/notifications', {
+          id: crypto.randomUUID(),
+          userId,
+          title: 'Business Application Denied',
+          content: `Your business verification was denied. Reason: ${denialReason}`,
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+        setDenialReason('');
+      } else {
+        await api.post('/business/approve', { userId, approved, reviewedBy: 'admin' });
+      }
       fetchData();
       toast.success(approved ? 'Business approved' : 'Business denied');
       
@@ -1271,13 +1283,19 @@ useEffect(() => {
     } catch (error) {
       toast.error('Failed to process verification');
     }
-};
+  };
+
+  const pendingRequests = verificationRequests.filter(v => v.status === 'pending');
+  const approvedRequests = verificationRequests.filter(v => v.status === 'approved');
+  const deniedRequests = verificationRequests.filter(v => v.status === 'denied');
+
+  const totalRentFee = orders.reduce((sum, o) => sum + (o.total * 0.03), 0);
 
   const stats = [
     { label: 'Total Users', value: users.length, icon: Users, color: 'text-blue-600' },
     { label: 'Total Products', value: products.length, icon: Package, color: 'text-amber-600' },
     { label: 'Total Orders', value: orders.length, icon: ShoppingBag, color: 'text-emerald-600' },
-    { label: 'Platform Revenue', value: formatPrice(orders.reduce((sum, o) => sum + o.total, 0)), icon: TrendingUp, color: 'text-purple-600' },
+    { label: 'Business Rent Revenue', value: formatPrice(totalRentFee), icon: TrendingUp, color: 'text-purple-600' },
   ];
 
   return (
@@ -1433,17 +1451,53 @@ useEffect(() => {
         </TabsContent>
 
         <TabsContent value="business" className="space-y-4">
+          <div className="flex gap-2 mb-4">
+            <Button 
+              variant={businessTab === 'pending' ? 'default' : 'outline'} 
+              className="rounded-full"
+              onClick={() => setBusinessTab('pending')}
+            >
+              Pending ({pendingRequests.length})
+            </Button>
+            <Button 
+              variant={businessTab === 'approved' ? 'default' : 'outline'} 
+              className="rounded-full"
+              onClick={() => setBusinessTab('approved')}
+            >
+              Approved ({approvedRequests.length})
+            </Button>
+            <Button 
+              variant={businessTab === 'denied' ? 'default' : 'outline'} 
+              className="rounded-full"
+              onClick={() => setBusinessTab('denied')}
+            >
+              Denied ({deniedRequests.length})
+            </Button>
+          </div>
+
           <Card className="border-none bg-paper shadow-sm">
             <CardHeader>
-              <CardTitle className="serif">Business Verification Requests</CardTitle>
-              <CardDescription>Review and approve business verification applications</CardDescription>
+              <CardTitle className="serif">
+                {businessTab === 'pending' && 'Business Verification Requests'}
+                {businessTab === 'approved' && 'Approved Businesses'}
+                {businessTab === 'denied' && 'Denied Businesses'}
+              </CardTitle>
+              <CardDescription>
+                {businessTab === 'pending' && 'Review and approve business verification applications'}
+                {businessTab === 'approved' && 'List of approved business accounts'}
+                {businessTab === 'denied' && 'Businesses that were denied verification'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              {verificationRequests.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No pending verification requests</p>
+              {(businessTab === 'pending' ? pendingRequests : businessTab === 'approved' ? approvedRequests : deniedRequests).length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  {businessTab === 'pending' && 'No pending verification requests'}
+                  {businessTab === 'approved' && 'No approved businesses'}
+                  {businessTab === 'denied' && 'No denied businesses'}
+                </p>
               ) : (
                 <div className="space-y-4">
-                  {verificationRequests.map((v) => {
+                  {(businessTab === 'pending' ? pendingRequests : businessTab === 'approved' ? approvedRequests : deniedRequests).map((v) => {
                     const userInfo = users.find(u => u.uid === v.userId);
                     return (
                       <div key={v.id} className="border rounded-lg p-4 space-y-4">
@@ -1457,49 +1511,67 @@ useEffect(() => {
                             <p className="text-sm text-muted-foreground">{userInfo?.email}</p>
                             <p className="text-xs text-muted-foreground">Business: {userInfo?.businessName || 'N/A'}</p>
                           </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Registered Email</p>
-                            <p className="font-medium">{v.registeredEmail || 'Not provided'}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Registered Phone</p>
-                            <p className="font-medium">{v.registeredPhone || 'Not provided'}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">NIN Number</p>
-                            <p className="font-medium">{v.ninNumber || 'Not provided'}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-4">
-                          {v.nationalIdFront && (
-                            <div>
-                              <p className="text-muted-foreground text-sm mb-2">National ID - Front</p>
-                              <img src={v.nationalIdFront} alt="NID Front" className="h-32 w-24 object-cover rounded" />
-                            </div>
-                          )}
-                          {v.nationalIdBack && (
-                            <div>
-                              <p className="text-muted-foreground text-sm mb-2">National ID - Back</p>
-                              <img src={v.nationalIdBack} alt="NID Back" className="h-32 w-24 object-cover rounded" />
-                            </div>
-                          )}
-                          {v.passportPhoto && (
-                            <div>
-                              <p className="text-muted-foreground text-sm mb-2">Passport Photo</p>
-                              <img src={v.passportPhoto} alt="Passport" className="h-32 w-24 object-cover rounded" />
-                            </div>
+                          {businessTab === 'denied' && v.denialReason && (
+                            <Badge variant="destructive" className="ml-auto">Denied</Badge>
                           )}
                         </div>
-                        <div className="flex gap-2">
-                          <Button className="flex-1" onClick={() => handleApprove(v.userId, true)}>
-                            <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
-                          </Button>
-                          <Button variant="outline" className="flex-1" onClick={() => handleApprove(v.userId, false)}>
-                            <AlertCircle className="mr-2 h-4 w-4" /> Deny
-                          </Button>
-                        </div>
+                        {businessTab !== 'pending' && (
+                          <div className="bg-secondary/30 p-3 rounded-lg">
+                            <p className="text-sm text-muted-foreground">Submitted: {new Date(v.submittedAt).toLocaleDateString()}</p>
+                            {businessTab === 'denied' && v.denialReason && (
+                              <p className="text-sm text-red-600 mt-2"><strong>Reason:</strong> {v.denialReason}</p>
+                            )}
+                            {businessTab === 'approved' && v.reviewedAt && (
+                              <p className="text-sm text-emerald-600 mt-2">Approved on: {new Date(v.reviewedAt).toLocaleDateString()}</p>
+                            )}
+                          </div>
+                        )}
+                        {businessTab === 'pending' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <p className="text-muted-foreground">Registered Email</p>
+                                <p className="font-medium">{v.registeredEmail || 'Not provided'}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Registered Phone</p>
+                                <p className="font-medium">{v.registeredPhone || 'Not provided'}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">NIN Number</p>
+                                <p className="font-medium">{v.ninNumber || 'Not provided'}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-4">
+                              {v.nationalIdFront && (
+                                <div>
+                                  <p className="text-muted-foreground text-sm mb-2">National ID - Front</p>
+                                  <img src={v.nationalIdFront} alt="NID Front" className="h-32 w-24 object-cover rounded" />
+                                </div>
+                              )}
+                              {v.nationalIdBack && (
+                                <div>
+                                  <p className="text-muted-foreground text-sm mb-2">National ID - Back</p>
+                                  <img src={v.nationalIdBack} alt="NID Back" className="h-32 w-24 object-cover rounded" />
+                                </div>
+                              )}
+                              {v.passportPhoto && (
+                                <div>
+                                  <p className="text-muted-foreground text-sm mb-2">Passport Photo</p>
+                                  <img src={v.passportPhoto} alt="Passport" className="h-32 w-24 object-cover rounded" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <Button className="flex-1" onClick={() => handleApprove(v.userId, true)}>
+                                <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+                              </Button>
+                              <Button variant="outline" className="flex-1" onClick={() => setShowDenyModal(v.userId)}>
+                                <AlertCircle className="mr-2 h-4 w-4" /> Deny
+                              </Button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -1669,6 +1741,48 @@ useEffect(() => {
           </Dialog>
         )}
       </Tabs>
+
+      <Dialog open={!!showDenyModal} onOpenChange={() => { setShowDenyModal(null); setDenialReason(''); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deny Business Application</DialogTitle>
+            <DialogDescription>Provide a reason for denying this business application.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Denial Reason</Label>
+              <Textarea 
+                placeholder="Enter the reason for denial (e.g., incomplete documents, invalid business info, etc.)"
+                value={denialReason}
+                onChange={(e) => setDenialReason(e.target.value)}
+                rows={4}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button 
+                className="flex-1"
+                onClick={async () => {
+                  if (!denialReason.trim()) {
+                    toast.error('Please provide a denial reason');
+                    return;
+                  }
+                  await handleApprove(showDenyModal!, false);
+                  setShowDenyModal(null);
+                  setDenialReason('');
+                }}
+              >
+                Deny Application
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => { setShowDenyModal(null); setDenialReason(''); }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -2701,6 +2815,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [businessData, setBusinessData] = useState({ name: '', description: '' });
   const [isVerified, setIsVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [showAccountSetup, setShowAccountSetup] = useState(false);
+  const [accountSetupData, setAccountSetupData] = useState({ bankName: '', accountName: '' });
   const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
   const { formatPrice } = useCurrency();
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
@@ -2883,6 +2999,25 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       }
 
       toast.success(newProduct.id ? "Product updated successfully" : "Product added successfully");
+      
+      // Generate business account number if not exists (first product posted)
+      if (!user.businessAccountNumber && !newProduct.id) {
+        const emailHash = user.email.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const phoneHash = (user.phoneMTN || user.phoneAirtel || '').replace(/\D/g, '').slice(-6).padEnd(6, '0');
+        const timestamp = Date.now().toString().slice(-5);
+        const accountNumber = (emailHash + parseInt(phoneHash) + parseInt(timestamp)).toString().padStart(15, '0').slice(-15);
+        
+        const updatedUser = {
+          ...user,
+          businessAccountNumber: accountNumber,
+          hasCompletedAccountSetup: false
+        };
+        await api.post('/users', updatedUser);
+        localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
+        setUser(updatedUser as User);
+        toast.info("Business account created! Please complete your account settings.");
+      }
+      
       setIsAdding(false);
       setNewProduct({
         name: '',
@@ -3068,6 +3203,114 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
           </DialogContent>
         </Dialog>
       </div>
+
+      {user.hasCompletedAccountSetup === false && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-amber-100 p-2 rounded-full">
+              <AlertCircle className="h-5 w-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="font-medium text-amber-800">Complete Your Account Settings</p>
+              <p className="text-sm text-amber-600">Set up your bank details to receive payments from sales.</p>
+            </div>
+          </div>
+          <Button className="rounded-full bg-amber-600 hover:bg-amber-700" onClick={() => setShowAccountSetup(true)}>
+            Complete Setup
+          </Button>
+        </div>
+      )}
+
+      {isVerified && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h3 className="text-2xl serif">Orders Management</h3>
+            <Badge variant="outline" className="rounded-full">
+              {orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length} Active Orders
+            </Badge>
+          </div>
+          
+          {orders.length === 0 ? (
+            <div className="text-center py-12 bg-secondary/30 rounded-2xl">
+              <Package className="h-12 w-12 mx-auto text-muted-foreground/30" />
+              <p className="text-muted-foreground mt-4">No orders yet</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').map(order => (
+                <Card key={order.id} className="border-none bg-paper shadow-sm">
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="serif text-lg">Order #{order.id.slice(0, 8)}</CardTitle>
+                        <CardDescription>
+                          {new Date(order.createdAt).toLocaleDateString()} • {order.items.length} items
+                        </CardDescription>
+                      </div>
+                      <Badge className={
+                        order.status === 'pending' ? 'bg-amber-500' :
+                        order.status === 'processing' ? 'bg-blue-500' :
+                        order.status === 'shipped' ? 'bg-purple-500' :
+                        'bg-emerald-500'
+                      }>
+                        {order.status.toUpperCase()}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Customer Details:</p>
+                      <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                        <p>Name: {order.receiverName || 'N/A'}</p>
+                        <p>MTN: {order.phoneMTN || 'N/A'}</p>
+                        <p>Airtel: {order.phoneAirtel || 'N/A'}</p>
+                        <p>Delivery: {order.pickupOption === 'pickup' ? 'Pickup' : order.deliveryAddress || 'N/A'}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Items:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {order.items.map((item, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-xs">
+                            {item.name} x{item.quantity}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-2 border-t">
+                      <p className="font-medium">Total: {formatPrice(order.total)}</p>
+                      <div className="flex gap-2">
+                        {order.status === 'pending' && (
+                          <Button size="sm" className="rounded-full" onClick={() => updateOrderStatus(order.id, 'processing')}>
+                            Process Order
+                          </Button>
+                        )}
+                        {order.status === 'processing' && (
+                          <Button size="sm" className="rounded-full" onClick={() => updateOrderStatus(order.id, 'shipped')}>
+                            Mark as Shipped
+                          </Button>
+                        )}
+                        {order.status === 'shipped' && (
+                          <Button size="sm" className="rounded-full" onClick={() => updateOrderStatus(order.id, 'delivered')}>
+                            Mark as Delivered
+                          </Button>
+                        )}
+                        {order.status !== 'cancelled' && order.status !== 'delivered' && (
+                          <Button size="sm" variant="outline" className="rounded-full text-destructive" onClick={() => updateOrderStatus(order.id, 'cancelled')}>
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, i) => (
@@ -3308,6 +3551,58 @@ await api.post('/business/verify', {
               toast.error("Failed to submit verification");
             }
           }}>Submit for Verification</Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAccountSetup} onOpenChange={setShowAccountSetup}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="serif">Complete Account Settings</DialogTitle>
+            <DialogDescription>Add your bank details to receive payments from sales.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-secondary/30 p-4 rounded-xl">
+              <p className="text-sm text-muted-foreground">Your Business Account Number</p>
+              <p className="text-xl font-mono font-medium">{user.businessAccountNumber}</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Bank Name</Label>
+              <Input 
+                placeholder="e.g. Stanbic Bank, dfcU, Equity" 
+                value={accountSetupData.bankName}
+                onChange={(e) => setAccountSetupData({...accountSetupData, bankName: e.target.value})}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Account Name</Label>
+              <Input 
+                placeholder="Your registered account name" 
+                value={accountSetupData.accountName}
+                onChange={(e) => setAccountSetupData({...accountSetupData, accountName: e.target.value})}
+              />
+            </div>
+            <Button className="w-full" onClick={async () => {
+              if (!accountSetupData.bankName || !accountSetupData.accountName) {
+                toast.error("Please fill in all bank details");
+                return;
+              }
+              try {
+                const updatedUser = {
+                  ...user,
+                  bankName: accountSetupData.bankName,
+                  accountName: accountSetupData.accountName,
+                  hasCompletedAccountSetup: true
+                };
+                await api.post('/users', updatedUser);
+                localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
+                setUser(updatedUser as User);
+                toast.success("Account settings completed!");
+                setShowAccountSetup(false);
+              } catch (error) {
+                toast.error("Failed to save account details");
+              }
+            }}>Save Account Details</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -3661,6 +3956,34 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
   const { items, total, clearCart } = useCart();
   const { formatPrice } = useCurrency();
   const [paymentMethod, setPaymentMethod] = useState<'marzpay' | 'paypal'>('marzpay');
+  const [shippingInfo, setShippingInfo] = useState({
+    receiverName: user?.displayName || '',
+    phoneMTN: '',
+    phoneAirtel: '',
+    pickupOption: 'delivery' as 'pickup' | 'delivery',
+    address: '',
+    city: ''
+  });
+
+  const calculateItemPrice = (item: CartItem) => {
+    const product = products.find(p => p.id === item.productId);
+    if (!product) return item.price;
+    
+    let finalPrice = product.price;
+    if (product.discount && product.discount > 0) {
+      finalPrice = product.price * (1 - product.discount / 100);
+    }
+    
+    if (product.bulkDiscountMinQty && product.bulkDiscountPercent && item.quantity >= product.bulkDiscountMinQty) {
+      finalPrice = finalPrice * (1 - product.bulkDiscountPercent / 100);
+    }
+    
+    return finalPrice * item.quantity;
+  };
+
+  const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const discountedTotal = items.reduce((sum, item) => sum + calculateItemPrice(item), 0);
+  const savings = subtotal - discountedTotal;
 
   const handlePaymentSuccess = async (details: any) => {
     try {
@@ -3668,11 +3991,19 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         id: crypto.randomUUID(),
         customerId: user!.uid,
         items,
-        total,
+        total: discountedTotal,
         status: 'pending',
         paymentId: details.id,
         sellerIds: Array.from(new Set(items.map(item => products.find(p => p.id === item.productId)?.sellerId).filter(Boolean) as string[])),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        receiverName: shippingInfo.receiverName,
+        phoneMTN: shippingInfo.phoneMTN,
+        phoneAirtel: shippingInfo.phoneAirtel,
+        pickupOption: shippingInfo.pickupOption,
+        deliveryAddress: shippingInfo.pickupOption === 'delivery' ? shippingInfo.address : undefined,
+        city: shippingInfo.pickupOption === 'delivery' ? shippingInfo.city : undefined,
+        statusHistory: [{ status: 'pending', updatedAt: new Date().toISOString(), note: 'Order placed successfully' }],
+        rentFee: discountedTotal * 0.03
       };
       await api.post('/orders', orderData);
       
@@ -3701,12 +4032,65 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
             <div className="space-y-4">
               <h3 className="font-medium uppercase tracking-widest text-xs">Shipping Information</h3>
               <div className="grid gap-4">
-                <Input placeholder="Full Name" defaultValue={user?.displayName} />
-                <Input placeholder="Address Line 1" />
+                <Input 
+                  placeholder="Receiver Name" 
+                  value={shippingInfo.receiverName}
+                  onChange={(e) => setShippingInfo({...shippingInfo, receiverName: e.target.value})}
+                />
                 <div className="grid grid-cols-2 gap-4">
-                  <Input placeholder="City" />
-                  <Input placeholder="Postal Code" />
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">MTN Number</Label>
+                    <Input 
+                      placeholder="077xxxxxxx" 
+                      value={shippingInfo.phoneMTN}
+                      onChange={(e) => setShippingInfo({...shippingInfo, phoneMTN: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Airtel Number</Label>
+                    <Input 
+                      placeholder="070xxxxxxx" 
+                      value={shippingInfo.phoneAirtel}
+                      onChange={(e) => setShippingInfo({...shippingInfo, phoneAirtel: e.target.value})}
+                    />
+                  </div>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Delivery Option</Label>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant={shippingInfo.pickupOption === 'delivery' ? 'default' : 'outline'} 
+                      className="flex-1 rounded-full text-xs h-10"
+                      onClick={() => setShippingInfo({...shippingInfo, pickupOption: 'delivery'})}
+                    >
+                      Deliver to My Location
+                    </Button>
+                    <Button 
+                      variant={shippingInfo.pickupOption === 'pickup' ? 'default' : 'outline'} 
+                      className="flex-1 rounded-full text-xs h-10"
+                      onClick={() => setShippingInfo({...shippingInfo, pickupOption: 'pickup'})}
+                    >
+                      Pick from Business
+                    </Button>
+                  </div>
+                </div>
+                {shippingInfo.pickupOption === 'delivery' && (
+                  <>
+                    <Input 
+                      placeholder="Delivery Address" 
+                      value={shippingInfo.address}
+                      onChange={(e) => setShippingInfo({...shippingInfo, address: e.target.value})}
+                    />
+                    <div className="grid grid-cols-2 gap-4">
+                      <Input 
+                        placeholder="City/Area" 
+                        value={shippingInfo.city}
+                        onChange={(e) => setShippingInfo({...shippingInfo, city: e.target.value})}
+                      />
+                      <Input placeholder="Landmark (optional)" />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <Separator />
@@ -3731,7 +4115,7 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
 
               <div className="bg-secondary/30 p-6 rounded-2xl">
                 {paymentMethod === 'marzpay' ? (
-                  <MarzPay amount={total} onSuccess={handlePaymentSuccess} />
+                  <MarzPay amount={discountedTotal} onSuccess={handlePaymentSuccess} />
                 ) : (
                   <PayPalScriptProvider options={{ "clientId": "test" }}>
                     <PayPalButtons 
@@ -3739,7 +4123,7 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
                       createOrder={(data, actions) => {
                         return actions.order.create({
                           intent: "CAPTURE",
-                          purchase_units: [{ amount: { value: total.toFixed(2), currency_code: "USD" } }]
+                          purchase_units: [{ amount: { value: discountedTotal.toFixed(2), currency_code: "USD" } }]
                         });
                       }}
                       onApprove={async (data, actions) => {
@@ -3757,27 +4141,48 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         <div className="bg-paper p-8 rounded-3xl border h-fit space-y-6">
           <h3 className="font-serif text-2xl">Order Summary</h3>
           <div className="space-y-4">
-            {items.map(item => (
-              <div key={item.productId} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{item.name} x {item.quantity}</span>
-                <span>{formatPrice(item.price * item.quantity)}</span>
-              </div>
-            ))}
+            {items.map(item => {
+              const product = products.find(p => p.id === item.productId);
+              const itemDiscountedPrice = calculateItemPrice(item);
+              return (
+                <div key={item.productId} className="flex justify-between text-sm">
+                  <div className="flex flex-col">
+                    <span className="text-muted-foreground">{item.name} x {item.quantity}</span>
+                    {product?.discount && product.discount > 0 && (
+                      <span className="text-[10px] text-emerald-600">-{product.discount}% off</span>
+                    )}
+                  </div>
+                  <span>{formatPrice(itemDiscountedPrice)}</span>
+                </div>
+              );
+            })}
           </div>
           <Separator />
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
-              <span>{formatPrice(total)}</span>
+              <span className={savings > 0 ? 'line-through text-muted-foreground' : ''}>{formatPrice(subtotal)}</span>
             </div>
+            {savings > 0 && (
+              <div className="flex justify-between text-sm text-emerald-600">
+                <span>Discount Savings</span>
+                <span>-{formatPrice(savings)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Shipping</span>
               <span className="text-emerald-600">Free</span>
             </div>
+            <Separator />
             <div className="flex justify-between text-xl font-medium pt-4">
               <span>Total</span>
-              <span>{formatPrice(total)}</span>
+              <span>{formatPrice(discountedTotal)}</span>
             </div>
+            {savings > 0 && (
+              <p className="text-xs text-emerald-600 text-center">
+                You save {formatPrice(savings)} with applied discounts!
+              </p>
+            )}
           </div>
         </div>
       </div>

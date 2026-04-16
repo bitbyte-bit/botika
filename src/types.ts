@@ -29,6 +29,10 @@ export interface User {
     tiktok?: string;
   };
   coverPhoto?: string;
+  businessAccountNumber?: string;
+  bankName?: string;
+  accountName?: string;
+  hasCompletedAccountSetup?: boolean;
 }
 
 export interface Product {
@@ -115,6 +119,13 @@ export interface Order {
   trackingNumber?: string;
   sellerIds: string[];
   createdAt: string;
+  receiverName?: string;
+  phoneMTN?: string;
+  phoneAirtel?: string;
+  pickupOption?: 'pickup' | 'delivery';
+  deliveryAddress?: string;
+  city?: string;
+  statusHistory?: { status: string; updatedAt: string; note?: string }[];
 }
 
 export interface CartItem {

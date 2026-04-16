@@ -88,7 +88,8 @@ db.exec(`
     paymentId TEXT,
     trackingNumber TEXT,
     sellerIds TEXT,
-    createdAt TEXT
+    createdAt TEXT,
+    rentFee REAL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS messages (
@@ -171,7 +172,8 @@ db.exec(`
     status TEXT DEFAULT 'pending',
     submittedAt TEXT,
     reviewedAt TEXT,
-    reviewedBy TEXT
+    reviewedBy TEXT,
+    denialReason TEXT
   );
 `);
 
@@ -494,11 +496,11 @@ async function startServer() {
   });
 
   app.post("/api/business/approve", (req, res) => {
-    const { userId, approved, reviewedBy } = req.body;
+    const { userId, approved, reviewedBy, denialReason } = req.body;
     db.prepare(`
-      UPDATE business_verification SET status = ?, reviewedAt = ?, reviewedBy = ?
+      UPDATE business_verification SET status = ?, reviewedAt = ?, reviewedBy = ?, denialReason = ?
       WHERE userId = ?
-    `).run(approved ? 'approved' : 'denied', new Date().toISOString(), reviewedBy, userId);
+    `).run(approved ? 'approved' : 'denied', new Date().toISOString(), reviewedBy, denialReason || null, userId);
     
     if (approved) {
       db.prepare("UPDATE users SET role = 'seller' WHERE uid = ?").run(userId);
@@ -561,17 +563,17 @@ async function startServer() {
   });
 
   app.post("/api/products", (req, res) => {
-    const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition } = req.body;
+    const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition, discount, bulkDiscountMinQty, bulkDiscountPercent } = req.body;
     
     // Check if seller is verified (role = 'seller') and auto-approve their products
     const seller = db.prepare("SELECT role FROM users WHERE uid = ?").get(sellerId);
     const autoApproved = (seller?.role === 'seller') ? 1 : (isApproved ?? 0);
     
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO products (id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO products (id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition, discount, bulkDiscountMinQty, bulkDiscountPercent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, autoApproved, condition || 'new');
+    stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, autoApproved, condition || 'new', discount || 0, bulkDiscountMinQty || 0, bulkDiscountPercent || 0);
     res.json({ success: true });
   });
 
@@ -601,12 +603,12 @@ async function startServer() {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt } = req.body;
+    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee } = req.body;
     const stmt = db.prepare(`
-      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt);
+    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0);
     res.json({ success: true });
   });
 
@@ -932,6 +934,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+    app.use(express.static(path.join(process.cwd(), "public")));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
