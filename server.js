@@ -215,15 +215,6 @@ if (!masterAdminExists) {
   stmt.run('master-admin', 'bikuumba26@gmail.com', 'Master Admin', '', 'master', 'active', new Date().toISOString(), 'bikuumba');
 }
 
-const adminExists = db.prepare("SELECT * FROM users WHERE email = ?").get('bikuumba@gmail.com');
-if (!adminExists) {
-  const stmt = db.prepare(`
-    INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run('admin-user', 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
-}
-
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -296,6 +287,22 @@ async function startServer() {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
+    
+    // Special handling for admin credentials
+    if (email === 'bikuumba@gmail.com' && password === 'bikuumba') {
+      let adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      if (!adminUser) {
+        const stmt = db.prepare(`
+          INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run('admin-' + Date.now(), 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
+        adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      }
+      const { password: _, ...userWithoutPassword } = adminUser;
+      return res.json(userWithoutPassword);
+    }
+    
     try {
       const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
       if (!user) {

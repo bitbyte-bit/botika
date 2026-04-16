@@ -162,17 +162,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const displayName = decoded.name;
       const photoURL = decoded.picture;
 
+      // Check for admin emails
+      const isAdminEmail = email === 'bikuumba26@gmail.com' || email === 'bitbyte790@gmail.com' || email === 'bikuumba@gmail.com';
+      
       let sqlUser = await api.get(`/users/${uid}`);
       if (!sqlUser) {
-        sqlUser = {
-          uid,
-          email,
-          displayName,
-          photoURL,
-          role: email === 'bitbyte790@gmail.com' || email === 'bikuumba26@gmail.com' ? 'admin' : 'customer',
-          status: 'active',
-          createdAt: new Date().toISOString(),
-        };
+        // Try to find user by email
+        const allUsers = await api.get('/users?all=true');
+        sqlUser = (allUsers || []).find((u: User) => u.email === email);
+        
+        if (!sqlUser) {
+          sqlUser = {
+            uid,
+            email,
+            displayName,
+            photoURL,
+            role: isAdminEmail ? 'admin' : 'customer',
+            status: 'active',
+            createdAt: new Date().toISOString(),
+          };
+          await api.post('/users', sqlUser);
+        } else {
+          // Update existing user's Google uid
+          sqlUser = { ...sqlUser, uid, photoURL };
+          await api.post('/users', sqlUser);
+        }
+      }
+      
+      // Ensure admin role for admin emails
+      if (isAdminEmail && sqlUser.role !== 'admin' && sqlUser.role !== 'master') {
+        sqlUser = { ...sqlUser, role: 'admin' };
         await api.post('/users', sqlUser);
       }
       
