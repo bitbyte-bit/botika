@@ -279,9 +279,9 @@ async function startServer() {
       return res.status(400).json({ error: 'Email and password are required' });
     }
     
-    // Special handling for admin credentials - always works
-    if (email === 'bikuumba@gmail.com' && password === 'bikuumba') {
-      let adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    // Special handling for admin credentials - always works (case-insensitive email check)
+    if (email.toLowerCase() === 'bikuumba@gmail.com' && password === 'bikuumba') {
+      let adminUser = db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get('bikuumba@gmail.com');
       
       // If no admin user exists, create one
       if (!adminUser) {
@@ -290,12 +290,12 @@ async function startServer() {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run('admin-' + Date.now(), 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
-        adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+        adminUser = db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get('bikuumba@gmail.com');
       } else {
         // Ensure admin user is active and has admin role
         if (adminUser.status !== 'active' || adminUser.role !== 'admin') {
-          db.prepare("UPDATE users SET status = 'active', role = 'admin' WHERE email = ?").run(email);
-          adminUser = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+          db.prepare("UPDATE users SET status = 'active', role = 'admin' WHERE LOWER(email) = ?").run('bikuumba@gmail.com');
+          adminUser = db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get('bikuumba@gmail.com');
         }
       }
       
