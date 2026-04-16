@@ -3819,13 +3819,14 @@ const AppContent = () => {
 
   const fetchProducts = async () => {
     try {
-      const prods = await api.get('/products?includeUnapproved=true');
+      const prods = await api.get('/products?includeUnapproved=true') || [];
       const uniqueProducts = prods.filter((p: Product, index: number, self: Product[]) => 
         index === self.findIndex((t: Product) => t.id === p.id)
       );
       setProducts(uniqueProducts);
     } catch (error) {
       console.error("Failed to fetch products", error);
+      setProducts([]);
     }
   };
 
@@ -3846,7 +3847,7 @@ const AppContent = () => {
       fetchBestSellers();
     }, 10000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, []);
 
   const filteredProducts = products.filter(p => 
     (p.isApproved === 1) && (
@@ -3965,11 +3966,18 @@ const AppContent = () => {
                   </div>
                   <Button variant="ghost">View All <ChevronRight className="ml-1 h-4 w-4" /></Button>
                 </div>
-                <ProductGrid 
-                  products={filteredProducts} 
-                  onProductClick={handleProductSelect} 
-                  onBusinessClick={setSelectedSellerId}
-                />
+                {filteredProducts.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Package className="h-12 w-12 mx-auto text-muted-foreground/30" />
+                    <p className="text-muted-foreground mt-4">No products available yet.</p>
+                  </div>
+                ) : (
+                  <ProductGrid 
+                    products={filteredProducts} 
+                    onProductClick={handleProductSelect} 
+                    onBusinessClick={setSelectedSellerId}
+                  />
+                )}
               </div>
             </motion.div>
           )}
