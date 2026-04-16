@@ -2395,7 +2395,14 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
                   <ShieldCheck className="h-3 w-3" /> Authentic
                 </Badge>
               </div>
-)}
+            )}
+            {product.condition === 'used' && (
+              <div className="absolute top-2 left-2 md:top-4 md:left-4" style={{ marginTop: product.isAuthentic ? '2.5rem' : '0' }}>
+                <Badge className="bg-amber-600 text-white flex items-center gap-1 text-[10px] md:text-xs">
+                  Used
+                </Badge>
+              </div>
+            )}
             {product.discount && product.discount > 0 && (
               <div className='absolute top-2 right-2 md:top-4'>
                 <Badge className='bg-red-600 text-white'>
@@ -2427,7 +2434,16 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick }: { products: 
           <div className="mt-3 md:mt-4 space-y-1">
             <div className="flex flex-col md:flex-row md:justify-between md:items-start" onClick={() => onProductClick(product)}>
               <h3 className="font-serif text-lg md:text-xl line-clamp-1">{product.name}</h3>
-              <span className="font-medium text-sm md:text-base">{formatPrice(product.price)}</span>
+              <div className="flex flex-col items-end">
+                {product.discount && product.discount > 0 ? (
+                  <>
+                    <span className="font-medium text-sm md:text-base">{formatPrice(product.price * (1 - product.discount / 100))}</span>
+                    <span className="text-[10px] md:text-xs text-muted-foreground line-through">{formatPrice(product.price)}</span>
+                  </>
+                ) : (
+                  <span className="font-medium text-sm md:text-base">{formatPrice(product.price)}</span>
+                )}
+              </div>
             </div>
             <div className="flex justify-between items-center">
               <button 
@@ -2545,7 +2561,14 @@ const handleLike = async () => {
             
             <div className="px-8 pb-8 space-y-6">
               <div className="space-y-2">
-                <Badge variant="outline" className="uppercase tracking-widest text-[10px]">{product.category}</Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className="uppercase tracking-widest text-[10px]">{product.category}</Badge>
+                  {product.condition === 'used' ? (
+                    <Badge variant="secondary" className="bg-amber-600 text-white">Used Item</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="bg-emerald-600 text-white">New</Badge>
+                  )}
+                </div>
                 <h2 className="text-4xl serif">{product.name}</h2>
                 <div className="flex items-center gap-3">
                   {discountedPrice ? (
@@ -2693,7 +2716,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     likeCount: 0,
     discount: 0,
     bulkDiscountMinQty: 0,
-    bulkDiscountPercent: 0
+    bulkDiscountPercent: 0,
+    condition: 'new'
   });
 
   const fetchData = async () => {
@@ -2977,6 +3001,18 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               <div className="space-y-2">
                 <Label>Category</Label>
                 <Input value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} />
+              </div>
+              <div className="space-y-2">
+                <Label>Condition</Label>
+                <Select value={newProduct.condition || 'new'} onValueChange={(val) => setNewProduct({...newProduct, condition: val as 'new' | 'used'})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select condition" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="used">Used</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Price (UGX)</Label>
@@ -3754,6 +3790,7 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
 const AppContent = () => {
   const [view, setView] = useState('home');
   const [products, setProducts] = useState<Product[]>([]);
+  const [bestSellers, setBestSellers] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
@@ -3792,9 +3829,22 @@ const AppContent = () => {
     }
   };
 
+  const fetchBestSellers = async () => {
+    try {
+      const best = await api.get('/best-sellers');
+      setBestSellers(best || []);
+    } catch (error) {
+      console.error("Failed to fetch best sellers", error);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
-    const interval = setInterval(fetchProducts, 10000);
+    fetchBestSellers();
+    const interval = setInterval(() => {
+      fetchProducts();
+      fetchBestSellers();
+    }, 10000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -3850,7 +3900,7 @@ const AppContent = () => {
                   <h4 className="font-medium uppercase tracking-widest text-[10px] text-paper/40">Shop</h4>
                   <ul className="space-y-4 text-xl serif">
                     <li><button onClick={() => { setView('home'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors flex items-center gap-3">New Arrivals <ArrowRight className="h-4 w-4 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all" /></button></li>
-                    <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Best Sellers</button></li>
+                    <li><button onClick={() => { setView('best-sellers'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Best Sellers</button></li>
                     <li><button onClick={() => { setView('categories'); setIsMenuOpen(false); }} className="hover:text-accent transition-colors">Categories</button></li>
                   </ul>
                 </div>
@@ -3917,6 +3967,30 @@ const AppContent = () => {
                 </div>
                 <ProductGrid 
                   products={filteredProducts} 
+                  onProductClick={handleProductSelect} 
+                  onBusinessClick={setSelectedSellerId}
+                />
+              </div>
+            </motion.div>
+          )}
+
+          {view === 'best-sellers' && (
+            <motion.div
+              key="best-sellers"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <div className="container mx-auto px-4 py-12 space-y-12">
+                <div className="flex justify-between items-end">
+                  <div className="space-y-2">
+                    <h3 className="text-4xl serif">Best Sellers</h3>
+                    <p className="text-muted-foreground">Most popular items from our boutique community.</p>
+                  </div>
+                  <Button variant="ghost" onClick={() => setView('home')}>Back <ChevronRight className="ml-1 h-4 w-4 rotate-180" /></Button>
+                </div>
+                <ProductGrid 
+                  products={bestSellers} 
                   onProductClick={handleProductSelect} 
                   onBusinessClick={setSelectedSellerId}
                 />

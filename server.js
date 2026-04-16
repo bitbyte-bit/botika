@@ -75,7 +75,8 @@ db.exec(`
     isApproved INTEGER DEFAULT 0,
     discount INTEGER DEFAULT 0,
     bulkDiscountMinQty INTEGER DEFAULT 0,
-    bulkDiscountPercent INTEGER DEFAULT 0
+    bulkDiscountPercent INTEGER DEFAULT 0,
+    condition TEXT DEFAULT 'new'
   );
 
   CREATE TABLE IF NOT EXISTS orders (
@@ -546,12 +547,12 @@ async function startServer() {
   });
 
   app.post("/api/products", (req, res) => {
-    const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved } = req.body;
+    const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition } = req.body;
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO products (id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO products (id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved ?? 0);
+    stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved ?? 0, condition || 'new');
     res.json({ success: true });
   });
 

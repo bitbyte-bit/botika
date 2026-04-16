@@ -54,6 +54,7 @@ export interface Product {
   bulkDiscountMinQty?: number;
   bulkDiscountPercent?: number;
   isApproved?: number;
+  condition?: 'new' | 'used';
 }
 
 export interface Message {
