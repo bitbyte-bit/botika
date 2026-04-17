@@ -237,21 +237,22 @@ db.exec(`
     buttonPadding TEXT DEFAULT '8px 16px',
     buttonRadius TEXT DEFAULT '4px'
   );
-  
-  try {
-    db.exec("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS fontFamily TEXT");
-  } catch (e) { /* column may exist */ }
-  try {
-    db.exec("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS fontWeight TEXT");
-  } catch (e) { /* column may exist */ }
-  
-  try {
-    db.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deliveryConfirmation TEXT");
-  } catch (e) { /* column may exist */ }
-  try {
-    db.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS subOrders TEXT");
-  } catch (e) { /* column may exist */ }
+  `);
 
+function addColumnIfNotExists(table, column, type) {
+  const tableInfo = db.prepare(`PRAGMA table_info(${table})`).all();
+  const hasColumn = tableInfo.some(col => col.name === column);
+  if (!hasColumn) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
+
+addColumnIfNotExists('announcements', 'fontFamily', 'TEXT');
+addColumnIfNotExists('announcements', 'fontWeight', 'TEXT');
+addColumnIfNotExists('orders', 'deliveryConfirmation', 'TEXT');
+addColumnIfNotExists('orders', 'subOrders', 'TEXT');
+
+db.exec(`
   CREATE INDEX IF NOT EXISTS idx_products_seller ON products(sellerId);
   CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
   CREATE INDEX IF NOT EXISTS idx_products_approved ON products(isApproved);
