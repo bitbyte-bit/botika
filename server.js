@@ -100,6 +100,9 @@ db.exec(`
     subOrders TEXT,
     commissionPaid INTEGER DEFAULT 0
   );
+  
+  ALTER TABLE orders ADD COLUMN deliveryConfirmation TEXT;
+  ALTER TABLE orders ADD COLUMN subOrders TEXT;
 
   CREATE TABLE IF NOT EXISTS sub_orders (
     id TEXT PRIMARY KEY,
@@ -234,6 +237,20 @@ db.exec(`
     buttonPadding TEXT DEFAULT '8px 16px',
     buttonRadius TEXT DEFAULT '4px'
   );
+  
+  try {
+    db.exec("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS fontFamily TEXT");
+  } catch (e) { /* column may exist */ }
+  try {
+    db.exec("ALTER TABLE announcements ADD COLUMN IF NOT EXISTS fontWeight TEXT");
+  } catch (e) { /* column may exist */ }
+  
+  try {
+    db.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS deliveryConfirmation TEXT");
+  } catch (e) { /* column may exist */ }
+  try {
+    db.exec("ALTER TABLE orders ADD COLUMN IF NOT EXISTS subOrders TEXT");
+  } catch (e) { /* column may exist */ }
 
   CREATE INDEX IF NOT EXISTS idx_products_seller ON products(sellerId);
   CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
@@ -827,7 +844,7 @@ async function startServer() {
     }));
   });
 
-  app.post("/api/products", (req, res) => {
+  app.post("/api/products", async (req, res) => {
     const { id, name, description, price, category, images, stock, isAuthentic, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, isApproved, condition, discount, bulkDiscountMinQty, bulkDiscountPercent } = req.body;
     
     // Check if seller is verified (role = 'seller') and auto-approve their products
@@ -839,12 +856,58 @@ async function startServer() {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(id, name, description, price, category, JSON.stringify(images), stock, isAuthentic ? 1 : 0, authenticationDetails, ratingAvg, reviewCount, sellerId, sellerName, createdAt, visitCount, likeCount, autoApproved, condition || 'new', discount || 0, bulkDiscountMinQty || 0, bulkDiscountPercent || 0);
+    
+    // Send push notification to all users about new product (if approved)
+    if (autoApproved === 1) {
+      const tokens = db.prepare("SELECT * FROM fcm_tokens").all();
+      for (const tokenEntry of tokens) {
+        if (tokenEntry.userId === sellerId) continue; // Don't notify the seller themselves
+        try {
+          await webpush.sendNotification(
+            JSON.parse(tokenEntry.token),
+            JSON.stringify({
+              title: "New Product Available!",
+              body: `${sellerName} added: ${name} - ${price.toLocaleString()} RWF`,
+              data: { type: 'new_product', productId: id, sellerId }
+            })
+          );
+        } catch (error) {
+          if (error.statusCode === 410) {
+            db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+          }
+        }
+      }
+    }
+    
     res.json({ success: true });
   });
 
-  app.patch("/api/products/:id/approve", (req, res) => {
+  app.patch("/api/products/:id/approve", async (req, res) => {
     const { approved } = req.body;
+    const product = db.prepare("SELECT * FROM products WHERE id = ?").get(req.params.id);
     db.prepare("UPDATE products SET isApproved = ? WHERE id = ?").run(approved ? 1 : 0, req.params.id);
+    
+    // Notify seller when product is approved
+    if (approved && product) {
+      const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(product.sellerId);
+      if (tokenEntry) {
+        try {
+          await webpush.sendNotification(
+            JSON.parse(tokenEntry.token),
+            JSON.stringify({
+              title: "Product Approved!",
+              body: `Your product "${product.name}" is now live!`,
+              data: { type: 'product_approved', productId: product.id }
+            })
+          );
+        } catch (error) {
+          if (error.statusCode === 410) {
+            db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+          }
+        }
+      }
+    }
+    
     res.json({ success: true });
   });
 
@@ -1213,9 +1276,9 @@ if (all === 'true') {
     `);
     stmt.run(id, senderId, senderName, receiverId, content, createdAt, type, read ? 1 : 0);
     
-    // Send push notification to receiver
-    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(receiverId);
-    if (tokenEntry) {
+    // Send push notification to receiver (all devices)
+    const tokenEntries = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").all(receiverId);
+    if (tokenEntries.length > 0) {
       let messagePreview = content;
       if (type === 'image') {
         messagePreview = 'Sent an image';
@@ -1228,19 +1291,21 @@ if (all === 'true') {
       const notificationTitle = `New message from ${senderName}`;
       const notificationBody = messagePreview;
       
-      try {
-        await webpush.sendNotification(
-          JSON.parse(tokenEntry.token),
-          JSON.stringify({
-            title: notificationTitle,
-            body: notificationBody,
-            data: { type: 'message', senderId, messageId: id }
-          })
-        );
-      } catch (error) {
-        console.error("Push notification error:", error.message);
-        if (error.statusCode === 410) {
-          db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(receiverId);
+      for (const tokenEntry of tokenEntries) {
+        try {
+          await webpush.sendNotification(
+            JSON.parse(tokenEntry.token),
+            JSON.stringify({
+              title: notificationTitle,
+              body: notificationBody,
+              data: { type: 'message', senderId, messageId: id }
+            })
+          );
+        } catch (error) {
+          console.error("Push notification error:", error.message);
+          if (error.statusCode === 410) {
+            db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+          }
         }
       }
     }
@@ -1478,10 +1543,13 @@ if (all === 'true') {
     if (!token || !userId) {
       return res.status(400).json({ error: "Token and userId required" });
     }
-    const existing = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
-    if (existing) {
-      db.prepare("UPDATE fcm_tokens SET token = ?, createdAt = ? WHERE userId = ?").run(token, new Date().toISOString(), userId);
+    
+    // Check if this exact token already exists
+    const existingToken = db.prepare("SELECT * FROM fcm_tokens WHERE token = ?").get(token);
+    if (existingToken) {
+      db.prepare("UPDATE fcm_tokens SET createdAt = ? WHERE id = ?").run(new Date().toISOString(), existingToken.id);
     } else {
+      // Insert new token (allows multiple devices per user)
       const stmt = db.prepare(`
         INSERT INTO fcm_tokens (id, userId, token, createdAt)
         VALUES (?, ?, ?, ?)
@@ -1493,25 +1561,29 @@ if (all === 'true') {
 
   app.post("/api/notifications/send", async (req, res) => {
     const { userId, title, body, data } = req.body;
-    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
-    if (!tokenEntry) {
+    const tokenEntries = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").all(userId);
+    if (tokenEntries.length === 0) {
       console.log(`No FCM token found for user ${userId}`);
       return res.json({ success: false, error: "No token" });
     }
-    try {
-      await webpush.sendNotification(
-        JSON.parse(tokenEntry.token),
-        JSON.stringify({ title, body, data })
-      );
-      console.log(`Push sent to ${userId}: ${title}`);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Push notification error:", error.message);
-      if (error.statusCode === 410) {
-        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
+    
+    let successCount = 0;
+    for (const tokenEntry of tokenEntries) {
+      try {
+        await webpush.sendNotification(
+          JSON.parse(tokenEntry.token),
+          JSON.stringify({ title, body, data })
+        );
+        successCount++;
+      } catch (error) {
+        console.error("Push notification error:", error.message);
+        if (error.statusCode === 410) {
+          db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+        }
       }
-      res.json({ success: false, error: error.message });
     }
+    console.log(`Push sent to ${userId} (${successCount}/${tokenEntries.length} devices): ${title}`);
+    res.json({ success: successCount > 0, sentCount: successCount });
   });
 
   // Broadcast notification to all subscribed users
@@ -1536,7 +1608,7 @@ if (all === 'true') {
       } catch (error) {
         failCount++;
         if (error.statusCode === 410) {
-          db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(tokenEntry.userId);
+          db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
         }
       }
     }
@@ -1583,24 +1655,25 @@ if (all === 'true') {
         body = `Your order #${orderId.slice(-6).toUpperCase()} status: ${status}`;
     }
     
-    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
-    if (!tokenEntry) {
+    const tokenEntries = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").all(userId);
+    if (tokenEntries.length === 0) {
       return res.json({ success: false, error: "No token" });
     }
     
-    try {
-      await webpush.sendNotification(
-        JSON.parse(tokenEntry.token),
-        JSON.stringify({ title, body, data: notificationData })
-      );
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Order notification error:", error.message);
-      if (error.statusCode === 410) {
-        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
+    for (const tokenEntry of tokenEntries) {
+      try {
+        await webpush.sendNotification(
+          JSON.parse(tokenEntry.token),
+          JSON.stringify({ title, body, data: notificationData })
+        );
+      } catch (error) {
+        console.error("Order notification error:", error.message);
+        if (error.statusCode === 410) {
+          db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+        }
       }
-      res.json({ success: false, error: error.message });
     }
+    res.json({ success: true });
   });
 
   // Send notification to seller when new order
@@ -1611,24 +1684,25 @@ if (all === 'true') {
     const body = `${customerName} placed an order (UGX ${total?.toLocaleString()}) - ${itemCount} item(s)`;
     const notificationData = { type: 'new_order', orderId };
     
-    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(sellerId);
-    if (!tokenEntry) {
+    const tokenEntries = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").all(sellerId);
+    if (tokenEntries.length === 0) {
       return res.json({ success: false, error: "No token" });
     }
     
-    try {
-      await webpush.sendNotification(
-        JSON.parse(tokenEntry.token),
-        JSON.stringify({ title, body, data: notificationData })
-      );
-      res.json({ success: true });
-    } catch (error) {
-      console.error("New order notification error:", error.message);
-      if (error.statusCode === 410) {
-        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(sellerId);
+    for (const tokenEntry of tokenEntries) {
+      try {
+        await webpush.sendNotification(
+          JSON.parse(tokenEntry.token),
+          JSON.stringify({ title, body, data: notificationData })
+        );
+      } catch (error) {
+        console.error("New order notification error:", error.message);
+        if (error.statusCode === 410) {
+          db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+        }
       }
-      res.json({ success: false, error: error.message });
     }
+    res.json({ success: true });
   });
 
   // Error notification
@@ -1660,24 +1734,25 @@ if (all === 'true') {
         body = message || 'An error occurred. Please try again.';
     }
     
-    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
-    if (!tokenEntry) {
+    const tokenEntries = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").all(userId);
+    if (tokenEntries.length === 0) {
       return res.json({ success: false, error: "No token" });
     }
     
-    try {
-      await webpush.sendNotification(
-        JSON.parse(tokenEntry.token),
-        JSON.stringify({ title, body, data: { type: 'error', errorType, details } })
-      );
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error notification failed:", error.message);
-      if (error.statusCode === 410) {
-        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
+    for (const tokenEntry of tokenEntries) {
+      try {
+        await webpush.sendNotification(
+          JSON.parse(tokenEntry.token),
+          JSON.stringify({ title, body, data: { type: 'error', errorType, details } })
+        );
+      } catch (error) {
+        console.error("Error notification failed:", error.message);
+        if (error.statusCode === 410) {
+          db.prepare("DELETE FROM fcm_tokens WHERE id = ?").run(tokenEntry.id);
+        }
       }
-      res.json({ success: false, error: error.message });
     }
+    res.json({ success: true });
   });
 
   if (process.env.NODE_ENV !== "production") {
