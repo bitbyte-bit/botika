@@ -5300,10 +5300,14 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
     try {
       const sellerIds = Array.from(new Set(items.map(item => products.find(p => p.id === item.productId)?.sellerId).filter(Boolean) as string[]));
       
-      // Create sub-orders for each seller
+      // Create sub-orders for each seller - only send minimal data
       const subOrders = sellerIds.map(sellerId => {
-        const sellerItems = items.filter(item => products.find(p => p.id === item.productId)?.sellerId === sellerId);
-        const subtotal = sellerItems.reduce((sum, item) => sum + calculateItemPrice(item), 0);
+        const sellerItems = items.filter(item => products.find(p => p.id === item.productId)?.sellerId === sellerId).map(item => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          price: calculateItemPrice(item) / item.quantity
+        }));
+        const subtotal = sellerItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         return {
           id: crypto.randomUUID(),
           sellerId,
@@ -5312,10 +5316,17 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         };
       });
       
+      // Simplify items to only essential fields
+      const simplifiedItems = items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        price: calculateItemPrice(item) / item.quantity
+      }));
+      
       const orderData: Order = {
         id: crypto.randomUUID(),
         customerId: user!.uid,
-        items,
+        items: simplifiedItems,
         total: discountedTotal,
         status: 'pending',
         paymentId: details.id,
@@ -5327,7 +5338,6 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         pickupOption: shippingInfo.pickupOption,
         deliveryAddress: shippingInfo.pickupOption === 'delivery' ? shippingInfo.address : undefined,
         city: shippingInfo.pickupOption === 'delivery' ? shippingInfo.city : undefined,
-        statusHistory: [{ status: 'pending', updatedAt: new Date().toISOString(), note: 'Order placed successfully' }],
         rentFee: discountedTotal * 0.03
       };
       

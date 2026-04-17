@@ -100,9 +100,6 @@ db.exec(`
     subOrders TEXT,
     commissionPaid INTEGER DEFAULT 0
   );
-  
-  ALTER TABLE orders ADD COLUMN deliveryConfirmation TEXT;
-  ALTER TABLE orders ADD COLUMN subOrders TEXT;
 
   CREATE TABLE IF NOT EXISTS sub_orders (
     id TEXT PRIMARY KEY,
@@ -240,10 +237,14 @@ db.exec(`
   `);
 
 function addColumnIfNotExists(table, column, type) {
-  const tableInfo = db.prepare(`PRAGMA table_info(${table})`).all();
-  const hasColumn = tableInfo.some(col => col.name === column);
-  if (!hasColumn) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  try {
+    const tableInfo = db.prepare(`PRAGMA table_info(${table})`).all();
+    const hasColumn = tableInfo.some(col => col.name === column);
+    if (!hasColumn) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
+  } catch (err) {
+    console.log(`Column ${column} may already exist in ${table}:`, err.message);
   }
 }
 
@@ -275,8 +276,8 @@ async function startServer() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   }));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   app.post("/api/auth/signup", async (req, res) => {
     const { email, password, displayName } = req.body;
@@ -991,7 +992,8 @@ if (all === 'true') {
       ...o, 
       items: JSON.parse(o.items || '[]'),
       sellerIds: JSON.parse(o.sellerIds || '[]'),
-      deliveryConfirmation: o.deliveryConfirmation ? JSON.parse(o.deliveryConfirmation) : undefined
+      deliveryConfirmation: o.deliveryConfirmation ? JSON.parse(o.deliveryConfirmation) : undefined,
+      subOrders: o.subOrders ? JSON.parse(o.subOrders) : []
     })));
   });
 
