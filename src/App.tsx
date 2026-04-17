@@ -245,9 +245,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (existing) {
         return prev.map(i => i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
+      toast.success(`${product.name} added to cart`);
       return [...prev, { productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.images[0] }];
     });
-    toast.success(`${product.name} added to cart`);
   };
 
   const removeItem = (productId: string) => {
@@ -5696,11 +5696,21 @@ const AppContent = () => {
           text: a.text,
           theme: a.theme,
           fontSize: a.fontSize,
+          fontFamily: a.fontFamily,
+          fontWeight: a.fontWeight,
           padding: a.padding,
           borderRadius: a.borderRadius,
           duration: a.duration,
-          closable: !!a.closable
+          closable: !!a.closable,
+          buttonText: a.buttonText || '',
+          buttonColor: a.buttonColor || '#ffffff',
+          buttonBgColor: a.buttonBgColor || '#000000',
+          buttonLink: a.buttonLink || '',
+          buttonPadding: a.buttonPadding || '8px 16px',
+          buttonRadius: a.buttonRadius || '4px'
         });
+      } else {
+        setAnnouncement(null);
       }
     } catch (e) {
       console.error("Failed to fetch announcement", e);
@@ -5765,7 +5775,7 @@ const toggleCompare = (product: Product) => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-2 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable && !announcement.buttonText ? 'cursor-pointer' : ''}`}
+          className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-2 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable && announcement.closable ? 'cursor-pointer' : ''}`}
           style={{
             fontSize: announcement.fontSize,
             padding: announcement.padding,
@@ -5805,16 +5815,7 @@ const toggleCompare = (product: Product) => {
         </motion.div>
       )}
 
-      {user?.role === 'admin' && (
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          className="fixed bottom-4 right-4 z-50 rounded-full bg-accent text-accent-foreground"
-          onClick={() => setShowAnnouncementModal(true)}
-        >
-          <Send className="h-4 w-4 mr-2" /> Announcement
-        </Button>
-      )}
+      
 
       <Dialog open={showAnnouncementModal} onOpenChange={setShowAnnouncementModal}>
         <DialogContent className="max-w-md">
@@ -5892,6 +5893,80 @@ const toggleCompare = (product: Product) => {
                 onChange={(e) => setAnnouncementData({...announcementData, closable: e.target.checked})}
               />
               <Label>Closable by users</Label>
+            </div>
+            <Separator className="my-2" />
+            <p className="text-sm font-medium">Button Options</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Button Text</Label>
+                <Input 
+                  placeholder="e.g., Shop Now"
+                  value={announcementData.buttonText}
+                  onChange={(e) => setAnnouncementData({...announcementData, buttonText: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Button Link</Label>
+                <Input 
+                  placeholder="e.g., /shop or https://..."
+                  value={announcementData.buttonLink}
+                  onChange={(e) => setAnnouncementData({...announcementData, buttonLink: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Button Color</Label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="color"
+                    value={announcementData.buttonColor}
+                    onChange={(e) => setAnnouncementData({...announcementData, buttonColor: e.target.value})}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input 
+                    value={announcementData.buttonColor}
+                    onChange={(e) => setAnnouncementData({...announcementData, buttonColor: e.target.value})}
+                    placeholder="#ffffff"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Button Background</Label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="color"
+                    value={announcementData.buttonBgColor}
+                    onChange={(e) => setAnnouncementData({...announcementData, buttonBgColor: e.target.value})}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input 
+                    value={announcementData.buttonBgColor}
+                    onChange={(e) => setAnnouncementData({...announcementData, buttonBgColor: e.target.value})}
+                    placeholder="#000000"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Button Padding</Label>
+                <Input 
+                  value={announcementData.buttonPadding}
+                  onChange={(e) => setAnnouncementData({...announcementData, buttonPadding: e.target.value})}
+                  placeholder="8px 16px"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Button Radius</Label>
+                <Input 
+                  value={announcementData.buttonRadius}
+                  onChange={(e) => setAnnouncementData({...announcementData, buttonRadius: e.target.value})}
+                  placeholder="4px"
+                />
+              </div>
             </div>
             <Button className="w-full" onClick={async () => {
               if (!announcementData.text.trim()) {
@@ -6078,6 +6153,7 @@ export default function App() {
       <CurrencyProvider>
         <CartProvider>
           <AppContent />
+          <Toaster position="top-center" richColors />
         </CartProvider>
       </CurrencyProvider>
     </AuthProvider>
