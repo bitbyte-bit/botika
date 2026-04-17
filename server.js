@@ -617,16 +617,27 @@ async function startServer() {
   });
 
   app.post("/api/announcements", (req, res) => {
-    const { id, text, theme, fontSize, fontFamily, fontWeight, padding, borderRadius, duration, closable, buttonText, buttonColor, buttonBgColor, buttonLink, buttonPadding, buttonRadius } = req.body;
-    const now = new Date().toISOString();
-    const expiresAt = duration > 0 ? new Date(Date.now() + duration * 60 * 1000).toISOString() : null;
-    
-    db.prepare(`
-      INSERT OR REPLACE INTO announcements (id, text, theme, fontSize, fontFamily, fontWeight, padding, borderRadius, duration, closable, createdAt, expiresAt, status, buttonText, buttonColor, buttonBgColor, buttonLink, buttonPadding, buttonRadius)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
-    `).run(id, text, theme || 'accent', fontSize || 'text-sm', fontFamily || null, fontWeight || null, padding || '8px 16px', borderRadius || '0px', duration || 60, closable ? 1 : 0, now, expiresAt, buttonText || null, buttonColor || '#ffffff', buttonBgColor || '#000000', buttonLink || null, buttonPadding || '8px 16px', buttonRadius || '4px');
-    
-    res.json({ success: true });
+    try {
+      const { id, text, theme, fontSize, fontFamily, fontWeight, padding, borderRadius, duration, closable, buttonText, buttonColor, buttonBgColor, buttonLink, buttonPadding, buttonRadius } = req.body;
+      console.log("Received announcement data:", req.body);
+      
+      if (!id || !text) {
+        return res.status(400).json({ error: 'ID and text are required' });
+      }
+      
+      const now = new Date().toISOString();
+      const expiresAt = duration > 0 ? new Date(Date.now() + duration * 60 * 1000).toISOString() : null;
+      
+      db.prepare(`
+        INSERT OR REPLACE INTO announcements (id, text, theme, fontSize, fontFamily, fontWeight, padding, borderRadius, duration, closable, createdAt, expiresAt, status, buttonText, buttonColor, buttonBgColor, buttonLink, buttonPadding, buttonRadius)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+      `).run(id, text, theme || 'accent', fontSize || 'text-sm', fontFamily || null, fontWeight || null, padding || '8px 16px', borderRadius || '0px', duration || 60, closable ? 1 : 0, now, expiresAt, buttonText || null, buttonColor || '#ffffff', buttonBgColor || '#000000', buttonLink || null, buttonPadding || '8px 16px', buttonRadius || '4px');
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error saving announcement:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.patch("/api/announcements/:id", (req, res) => {
@@ -921,26 +932,36 @@ if (all === 'true') {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders } = req.body;
-    
-    const stmt = db.prepare(`
-      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders, commissionPaid)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null, JSON.stringify(subOrders || []), 0);
-    
-    // Create sub-orders for each seller
-    if (subOrders && subOrders.length > 0) {
-      for (const sub of subOrders) {
-        const commission = sub.subtotal * 0.03; // 3% commission
-        db.prepare(`
-          INSERT INTO sub_orders (id, orderId, sellerId, items, subtotal, commission, status, createdAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(sub.id, id, sub.sellerId, JSON.stringify(sub.items), sub.subtotal, commission, 'pending', createdAt);
+    try {
+      const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders } = req.body;
+      console.log("Creating order:", id, "customer:", customerId);
+      
+      if (!id || !customerId || !items) {
+        return res.status(400).json({ error: 'Missing required fields' });
       }
+      
+      const stmt = db.prepare(`
+        INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders, commissionPaid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null, JSON.stringify(subOrders || []), 0);
+      
+      // Create sub-orders for each seller
+      if (subOrders && subOrders.length > 0) {
+        for (const sub of subOrders) {
+          const commission = sub.subtotal * 0.03; // 3% commission
+          db.prepare(`
+            INSERT INTO sub_orders (id, orderId, sellerId, items, subtotal, commission, status, createdAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(sub.id, id, sub.sellerId, JSON.stringify(sub.items), sub.subtotal, commission, 'pending', createdAt);
+        }
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error creating order:", error);
+      res.status(500).json({ error: error.message });
     }
-    
-    res.json({ success: true });
   });
 
   app.get("/api/orders/:id/sub-orders", (req, res) => {

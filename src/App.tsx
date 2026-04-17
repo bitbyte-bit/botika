@@ -90,6 +90,89 @@ import { api } from './services/api';
 import { requestNotificationPermission, subscribeToNewItems, sendPushNotification, onForegroundMessage, sendOrderNotification, sendNewOrderToSeller } from './services/push';
 import { generateEncryptionKey, encryptMessage, decryptMessage } from './services/encryption';
 import { Button } from '@/components/ui/button';
+
+const updateOpenGraph = (title: string, description: string, image: string, url?: string) => {
+  const metaIds = [
+    { id: 'og:title', name: 'twitter:title', content: title },
+    { id: 'og:description', name: 'twitter:description', content: description },
+    { id: 'og:image', name: 'twitter:image', content: image },
+    { id: 'og:url', content: url || window.location.href }
+  ];
+  metaIds.forEach(({ id, name, content }) => {
+    let el = document.getElementById(id);
+    if (!el) {
+      el = document.createElement('meta');
+      el.setAttribute('id', id);
+      if (name) el.setAttribute('name', name);
+      el.setAttribute('property', id);
+      document.head.appendChild(el);
+    }
+    el.setAttribute('content', content);
+  });
+};
+
+const shareProduct = async (product: Product) => {
+  const shareData = {
+    title: `${product.name} - Bikuumba`,
+    text: `Check out ${product.name} at Bikuumba - ${product.price} UGX`,
+    url: `${window.location.origin}?product=${product.id}`
+  };
+  
+  updateOpenGraph(
+    `${product.name} - Bikuumba`,
+    product.description?.substring(0, 150) || 'Discover this curated item at Bikuumba',
+    product.images[0],
+    shareData.url
+  );
+  
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+    } catch (e) {
+      await navigator.clipboard.writeText(shareData.url);
+      toast.success('Link copied to clipboard!');
+    }
+  } else {
+    await navigator.clipboard.writeText(shareData.url);
+    toast.success('Link copied to clipboard!');
+  }
+};
+
+const shareProfile = async (user: User) => {
+  const shareData = {
+    title: `${user.businessName || user.displayName} - Bikuumba Boutique`,
+    text: `Visit ${user.businessName || user.displayName}'s boutique on Bikuumba`,
+    url: `${window.location.origin}?seller=${user.uid}`
+  };
+  
+  updateOpenGraph(
+    `${user.businessName || user.displayName} - Bikuumba Boutique`,
+    user.businessDescription || 'Curated boutique on Bikuumba',
+    user.photoURL || '',
+    shareData.url
+  );
+  
+  if (navigator.share) {
+    try {
+      await navigator.share(shareData);
+    } catch (e) {
+      await navigator.clipboard.writeText(shareData.url);
+      toast.success('Link copied to clipboard!');
+    }
+  } else {
+    await navigator.clipboard.writeText(shareData.url);
+    toast.success('Link copied to clipboard!');
+  }
+};
+
+const resetOpenGraph = () => {
+  updateOpenGraph(
+    'Bikuumba - Curated Boutique',
+    'Discover curated boutique treasures',
+    '',
+    window.location.origin
+  );
+};
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -1114,6 +1197,9 @@ const handleChat = async () => {
                 </Button>
                 <Button variant="outline" size="icon" className="rounded-full" onClick={handleChat}>
                   <MessageSquare className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="rounded-full" onClick={() => shareProfile(seller)}>
+                  <Share2 className="h-4 w-4" />
                 </Button>
               </div>
             </div>
@@ -2317,18 +2403,22 @@ const AdminDashboard = () => {
                   }
                   try {
                     const id = announcementForm.id || crypto.randomUUID();
-                    await api.post('/announcements', {
+                    const saveData = {
                       ...announcementForm,
                       id
-                    });
+                    };
+                    console.log("Saving announcement:", saveData);
+                    const result = await api.post('/announcements', saveData);
+                    console.log("Save result:", result);
                     toast.success(editingAnnouncement ? 'Announcement updated' : 'Announcement created');
                     setShowAnnouncementModal(false);
                     setEditingAnnouncement(null);
                     setAnnouncementForm({ id: '', text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' });
                     fetchData();
-                  } catch (error) {
+                  } catch (error: any) {
                     console.error("Failed to save announcement", error);
-                    toast.error('Failed to save announcement');
+                    const errorMsg = error?.message || error?.response?.data?.error || 'Failed to save announcement';
+                    toast.error(errorMsg);
                   }
                 }}
               >
@@ -2531,7 +2621,10 @@ const AdminDashboard = () => {
                           .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
                           .label { color: #666; font-size: 12px; }
                           .value { font-weight: bold; }
-                          img { max-width: 200px; height: auto; margin: 10px 0; }
+                          .images-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 10px; }
+                          .image-box { border: 1px solid #ddd; padding: 10px; border-radius: 8px; }
+                          .image-box img { width: 100%; height: 200px; object-fit: cover; border-radius: 4px; }
+                          .image-box p { margin-top: 5px; font-size: 12px; color: #666; text-align: center; }
                         </style>
                       </head>
                       <body>
@@ -2555,6 +2648,29 @@ const AdminDashboard = () => {
                             <div><span class="label">Registered Phone:</span> <span class="value">${selectedBusiness.verification?.registeredPhone || 'N/A'}</span></div>
                             <div><span class="label">NIN Number:</span> <span class="value">${selectedBusiness.verification?.ninNumber || 'N/A'}</span></div>
                             <div><span class="label">Submitted:</span> <span class="value">${selectedBusiness.verification?.submittedAt ? new Date(selectedBusiness.verification.submittedAt).toLocaleString() : 'N/A'}</span></div>
+                          </div>
+                        </div>
+                        <div class="section">
+                          <h3>Identity Documents</h3>
+                          <div class="images-grid">
+                            ${selectedBusiness.verification?.nationalIdFront ? `
+                            <div class="image-box">
+                              <img src="${selectedBusiness.verification.nationalIdFront}" alt="NIN Front" />
+                              <p>National ID (Front)</p>
+                            </div>
+                            ` : ''}
+                            ${selectedBusiness.verification?.nationalIdBack ? `
+                            <div class="image-box">
+                              <img src="${selectedBusiness.verification.nationalIdBack}" alt="NIN Back" />
+                              <p>National ID (Back)</p>
+                            </div>
+                            ` : ''}
+                            ${selectedBusiness.verification?.passportPhoto ? `
+                            <div class="image-box">
+                              <img src="${selectedBusiness.verification.passportPhoto}" alt="Passport Photo" />
+                              <p>Owner Passport Photo</p>
+                            </div>
+                            ` : ''}
                           </div>
                         </div>
                         ${selectedBusiness.user?.businessDescription ? `
@@ -2777,9 +2893,14 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
             <Badge variant="secondary" className="mt-2 capitalize">{user.role}</Badge>
           </div>
         </div>
-        <Button variant="outline" className="rounded-full w-full sm:w-auto" onClick={() => setIsEditing(true)}>
-          Edit Profile
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button variant="outline" className="flex-1 sm:flex-none rounded-full" onClick={() => shareProfile(user)}>
+            <Share2 className="h-4 w-4 mr-2" /> Share
+          </Button>
+          <Button variant="outline" className="flex-1 sm:flex-none rounded-full" onClick={() => setIsEditing(true)}>
+            Edit Profile
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-8">
@@ -3552,14 +3673,24 @@ const handleLike = async () => {
                 className="w-full h-auto max-h-[60vh] object-contain"
                 referrerPolicy="no-referrer"
               />
-              <Button 
-                size="icon" 
-                variant="secondary" 
-                className="absolute top-4 right-4 rounded-full bg-paper/80 backdrop-blur-sm hover:bg-paper"
-                onClick={handleLike}
-              >
-                <Heart className="h-5 w-5" />
-              </Button>
+              <div className="absolute bottom-4 right-4 flex gap-2">
+                <Button 
+                  size="icon" 
+                  variant="secondary" 
+                  className="rounded-full bg-paper/80 backdrop-blur-sm hover:bg-paper"
+                  onClick={() => shareProduct(product)}
+                >
+                  <Share2 className="h-5 w-5" />
+                </Button>
+                <Button 
+                  size="icon" 
+                  variant="secondary" 
+                  className="rounded-full bg-paper/80 backdrop-blur-sm hover:bg-paper"
+                  onClick={handleLike}
+                >
+                  <Heart className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
             
             <div className="px-8 pb-8 space-y-6">
@@ -5221,8 +5352,10 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
       clearCart();
       toast.success("Order placed successfully!");
       onComplete();
-    } catch (error) {
-      toast.error("Failed to place order");
+    } catch (error: any) {
+      console.error("Order placement failed:", error);
+      const errorMsg = error?.message || error?.response?.data?.error || 'Failed to place order';
+      toast.error(errorMsg);
       await sendPushNotification(user!.uid, 'Order Failed', 'Failed to place your order. Please try again.');
     }
   };
