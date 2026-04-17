@@ -1010,7 +1010,7 @@ if (all === 'true') {
         INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders, commissionPaid)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber || null, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName || null, phoneMTN || null, phoneAirtel || null, pickupOption || null, deliveryAddress || null, city || null, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null, JSON.stringify(subOrders || []), 0);
+      stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber || null, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName || null, phoneMTN || null, phoneAirtel || null, pickupOption || null, deliveryAddress || null, city || null, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null, JSON.stringify(subOrders || []));
       
       // Create sub-orders for each seller
       if (subOrders && subOrders.length > 0) {
