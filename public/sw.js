@@ -12,32 +12,76 @@ self.addEventListener('push', (event) => {
   if (!event.data) return;
   
   const data = event.data.json();
+  
+  // Determine notification type and customize
+  let title = data.title || 'Bikuumba';
+  let body = data.body || '';
+  let tag = data.data?.type || 'general';
+  let icon = '/icon-192.png';
+  
+  // Customize based on notification type
+  if (data.data?.type === 'message') {
+    title = data.title;
+    body = data.body;
+    icon = '/message-icon.png';
+    tag = 'message-' + data.data.senderId;
+  } else if (data.data?.type === 'order') {
+    title = data.title;
+    body = data.body;
+    icon = '/order-icon.png';
+    tag = 'order-' + data.data.orderId;
+  } else if (data.data?.type === 'new_order') {
+    title = data.title;
+    body = data.body;
+    icon = '/order-icon.png';
+  }
+  
   const options = {
-    body: data.body || '',
-    icon: '/icon-192.png',
+    body: body,
+    icon: icon,
     badge: '/badge-72.png',
+    tag: tag,
     data: data.data || {},
-    vibrate: [100, 50, 100],
+    vibrate: [200, 100, 200],
+    requireInteraction: true,
+    priority: 'high',
     actions: [
       { action: 'open', title: 'Open' },
-      { action: 'close', title: 'Close' }
+      { action: 'reply', title: 'Reply' }
     ]
   };
   
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Bikuumba', options)
+    self.registration.showNotification(title, options)
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
-  if (event.action === 'open' || !event.action) {
+  const data = event.notification.data || {};
+  
+  if (event.action === 'reply' || !event.action) {
+    // Determine where to navigate based on notification type
+    let url = '/';
+    if (data.type === 'message' && data.senderId) {
+      url = '/inbox?chat=' + data.senderId;
+    } else if (data.type === 'order' && data.orderId) {
+      url = '/orders?order=' + data.orderId;
+    } else if (data.type === 'new_order' && data.orderId) {
+      url = '/orders?order=' + data.orderId;
+    }
+    
     event.waitUntil(
-      clients.openWindow('/').then(client => {
-        if (client) {
-          client.focus();
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+        // If there's a window open, focus it
+        for (const client of clientList) {
+          if (client.url === '/' && 'focus' in client) {
+            return client.focus();
+          }
         }
+        // Otherwise open new window
+        return clients.openWindow(url);
       })
     );
   }

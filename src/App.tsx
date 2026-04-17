@@ -62,7 +62,10 @@ import {
   Diamond,
   Palette,
   Baby,
-  Footprints
+  Footprints,
+  Pause,
+  Play,
+  Megaphone
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -82,9 +85,9 @@ import { jwtDecode } from 'jwt-decode';
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 import { Toaster, toast } from 'sonner';
 
-import { User, Product, Order, CartItem, Review, Message, Follow, AppNotification, OperationType } from './types';
+import { User, Product, Order, CartItem, Review, Message, Follow, AppNotification, OperationType, Announcement } from './types';
 import { api } from './services/api';
-import { requestNotificationPermission, subscribeToNewItems, sendPushNotification, onForegroundMessage } from './services/push';
+import { requestNotificationPermission, subscribeToNewItems, sendPushNotification, onForegroundMessage, sendOrderNotification, sendNewOrderToSeller } from './services/push';
 import { generateEncryptionKey, encryptMessage, decryptMessage } from './services/encryption';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1243,6 +1246,30 @@ const AdminDashboard = () => {
   const [businessTab, setBusinessTab] = useState<'pending' | 'approved' | 'denied'>('pending');
   const [orderSearch, setOrderSearch] = useState('');
   const [businessSearch, setBusinessSearch] = useState('');
+  const [selectedOrderForAdmin, setSelectedOrderForAdmin] = useState<Order | null>(null);
+  const [subOrders, setSubOrders] = useState<any[]>([]);
+  const [selectedBusiness, setSelectedBusiness] = useState<any>(null);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [announcementForm, setAnnouncementForm] = useState({
+    id: '',
+    text: '',
+    theme: 'accent',
+    fontSize: 'text-sm',
+    fontFamily: '',
+    fontWeight: '',
+    padding: '8px 16px',
+    borderRadius: '0px',
+    duration: 60,
+    closable: true,
+    buttonText: '',
+    buttonColor: '#ffffff',
+    buttonBgColor: '#000000',
+    buttonLink: '',
+    buttonPadding: '8px 16px',
+    buttonRadius: '4px'
+  });
   const { formatPrice } = useCurrency();
   const { user: currentUser } = useAuth();
 
@@ -1273,11 +1300,12 @@ const AdminDashboard = () => {
 
   const fetchData = async () => {
     try {
-      const [u, p, o, v] = await Promise.all([
+      const [u, p, o, v, a] = await Promise.all([
         api.get('/users?all=true'),
         api.get('/products?includeUnapproved=true&all=true'),
         api.get('/orders?all=true'),
-        api.get('/business/verify-requests/all')
+        api.get('/business/verify-requests/all'),
+        api.get('/announcements')
       ]);
       setUsers(u || []);
       setProducts((p || []).filter((prod: Product, index: number, self: Product[]) => 
@@ -1285,6 +1313,7 @@ const AdminDashboard = () => {
       ));
       setOrders(o || []);
       setVerificationRequests(v || []);
+      setAnnouncements(a || []);
     } catch (error) {
       console.error("Failed to fetch admin data", error);
     }
@@ -1367,6 +1396,7 @@ const AdminDashboard = () => {
           <TabsTrigger value="orders" className="rounded-full px-8">Orders</TabsTrigger>
           <TabsTrigger value="business" className="rounded-full px-8">Users</TabsTrigger>
           <TabsTrigger value="verify" className="rounded-full px-8">Verify</TabsTrigger>
+          <TabsTrigger value="announcements" className="rounded-full px-8">Announcements</TabsTrigger>
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
@@ -1544,12 +1574,24 @@ const AdminDashboard = () => {
                         {new Date(order.createdAt).toLocaleDateString()}
                       </td>
                       <td className="p-4 text-right">
-                        <Button variant="ghost" size="sm" onClick={() => {
-                          navigator.clipboard.writeText(order.id);
-                          toast.success('Order ID copied!');
+                        <div className="flex gap-1 justify-end">
+                          <Button variant="ghost" size="sm" onClick={async () => {
+                          setSelectedOrderForAdmin(order);
+                          const subs = await api.get(`/orders/${order.id}/sub-orders`);
+                          setSubOrders(subs || []);
                         }}>
-                          <Copy className="h-3 w-3" />
-                        </Button>
+                            <Eye className="h-3 w-3" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => window.open(`/api/orders/${order.id}/receipt/download`, '_blank')}>
+                            <FileText className="h-3 w-3" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => {
+                            navigator.clipboard.writeText(order.id);
+                            toast.success('Order ID copied!');
+                          }}>
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1694,7 +1736,36 @@ const AdminDashboard = () => {
                           {businessTab === 'denied' && v.denialReason && (
                             <Badge variant="destructive" className="ml-auto">Denied</Badge>
                           )}
+                          {businessTab === 'approved' && (
+                            <div className="ml-auto flex items-center gap-2">
+                              {(() => {
+                                const lastSeen = userInfo?.lastSeen ? new Date(userInfo.lastSeen) : null;
+                                const now = new Date();
+                                const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                                const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                                const isInactive = lastSeen && lastSeen < weekAgo;
+                                const isLastSeenMonth = lastSeen && lastSeen < monthAgo;
+                                return (
+                                  <>
+                                    <Badge variant={!lastSeen || isInactive ? (isLastSeenMonth ? 'destructive' : 'secondary') : 'default'}>
+                                      {!lastSeen ? 'Never active' : isLastSeenMonth ? `Last seen ${lastSeen.toLocaleDateString()}` : isInactive ? 'Inactive' : 'Active'}
+                                    </Badge>
+                                    {lastSeen && (
+                                      <span className="text-xs text-muted-foreground">Last seen: {lastSeen.toLocaleDateString()}</span>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
+                        {businessTab === 'approved' && (
+                          <div className="flex gap-2 mt-2">
+                            <Button variant="outline" size="sm" onClick={() => setSelectedBusiness({ verification: v, user: userInfo })}>
+                              <Eye className="h-4 w-4 mr-2" /> View Details
+                            </Button>
+                          </div>
+                        )}
                         {businessTab !== 'pending' && (
                           <div className="bg-secondary/30 p-3 rounded-lg">
                             <p className="text-sm text-muted-foreground">Submitted: {new Date(v.submittedAt).toLocaleDateString()}</p>
@@ -1759,6 +1830,132 @@ const AdminDashboard = () => {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="announcements" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-muted-foreground">{announcements.length} announcements</p>
+            <Button onClick={() => { setEditingAnnouncement(null); setAnnouncementForm({ id: '', text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' }); setShowAnnouncementModal(true); }}>
+              <Plus className="mr-2 h-4 w-4" /> New Announcement
+            </Button>
+          </div>
+          <div className="space-y-4">
+            {announcements.length === 0 ? (
+              <Card className="border-none bg-paper shadow-sm p-8 text-center">
+                <Megaphone className="h-12 w-12 mx-auto opacity-20 mb-4" />
+                <p className="text-muted-foreground">No announcements yet</p>
+                <Button variant="outline" className="mt-4" onClick={() => { setEditingAnnouncement(null); setAnnouncementForm({ id: '', text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' }); setShowAnnouncementModal(true); }}>
+                  Create First Announcement
+                </Button>
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {announcements.map(a => (
+                  <Card key={a.id} className="border-none bg-paper shadow-sm">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant={a.status === 'active' ? 'default' : a.status === 'paused' ? 'secondary' : 'outline'}>
+                              {a.status === 'active' ? <Play className="h-3 w-3 mr-1" /> : a.status === 'paused' ? <Pause className="h-3 w-3 mr-1" /> : null}
+                              {a.status}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              Created: {new Date(a.createdAt).toLocaleDateString()}
+                            </span>
+                            {a.expiresAt && (
+                              <span className="text-xs text-muted-foreground">
+                                Expires: {new Date(a.expiresAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                          <div 
+                            className={`p-3 rounded ${a.theme === 'red' ? 'bg-red-600 text-white' : a.theme === 'green' ? 'bg-green-600 text-white' : a.theme === 'blue' ? 'bg-blue-600 text-white' : 'bg-accent text-accent-foreground'}`}
+                            style={{
+                              fontSize: a.fontSize,
+                              padding: a.padding,
+                              borderRadius: a.borderRadius
+                            }}
+                          >
+                            {a.text}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          {a.status === 'active' ? (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={async () => {
+                                await api.patch(`/announcements/${a.id}`, { status: 'paused' });
+                                fetchData();
+                                toast.success('Announcement paused');
+                              }}
+                            >
+                              <Pause className="h-4 w-4" />
+                            </Button>
+                          ) : a.status === 'paused' ? (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={async () => {
+                                await api.patch(`/announcements/${a.id}`, { status: 'active' });
+                                fetchData();
+                                toast.success('Announcement resumed');
+                              }}
+                            >
+                              <Play className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => {
+                              setEditingAnnouncement(a);
+                              setAnnouncementForm({
+                                id: a.id,
+                                text: a.text,
+                                theme: a.theme,
+                                fontSize: a.fontSize,
+                                fontFamily: a.fontFamily || '',
+                                fontWeight: a.fontWeight || '',
+                                padding: a.padding,
+                                borderRadius: a.borderRadius,
+                                duration: a.duration,
+                                closable: !!a.closable,
+                                buttonText: a.buttonText || '',
+                                buttonColor: a.buttonColor || '#ffffff',
+                                buttonBgColor: a.buttonBgColor || '#000000',
+                                buttonLink: a.buttonLink || '',
+                                buttonPadding: a.buttonPadding || '8px 16px',
+                                buttonRadius: a.buttonRadius || '4px'
+                              });
+                              setShowAnnouncementModal(true);
+                            }}
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-destructive"
+                            onClick={async () => {
+                              if (confirm('Are you sure you want to delete this announcement?')) {
+                                await api.delete(`/announcements/${a.id}`);
+                                fetchData();
+                                toast.success('Announcement deleted');
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
         </TabsContent>
 
         {selectedUser && (
@@ -1921,6 +2118,468 @@ const AdminDashboard = () => {
           </Dialog>
         )}
       </Tabs>
+
+      <Dialog open={showAnnouncementModal} onOpenChange={(open) => { setShowAnnouncementModal(open); if (!open) { setEditingAnnouncement(null); setAnnouncementForm({ id: '', text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' }); }}}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingAnnouncement ? 'Edit Announcement' : 'Create Announcement'}</DialogTitle>
+            <DialogDescription>Create a banner announcement for all users</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Announcement Text</Label>
+              <Textarea 
+                placeholder="Enter your announcement..."
+                value={announcementForm.text}
+                onChange={(e) => setAnnouncementForm({...announcementForm, text: e.target.value})}
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Theme Color</Label>
+                <Select value={announcementForm.theme} onValueChange={(val) => setAnnouncementForm({...announcementForm, theme: val})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="accent">Accent</SelectItem>
+                    <SelectItem value="red">Red</SelectItem>
+                    <SelectItem value="green">Green</SelectItem>
+                    <SelectItem value="blue">Blue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Font Size</Label>
+                <Select value={announcementForm.fontSize} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontSize: val})}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text-xs">Small</SelectItem>
+                    <SelectItem value="text-sm">Medium</SelectItem>
+                    <SelectItem value="text-base">Large</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Padding</Label>
+                <Input 
+                  value={announcementForm.padding}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, padding: e.target.value})}
+                  placeholder="8px 16px"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Border Radius</Label>
+                <Input 
+                  value={announcementForm.borderRadius}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, borderRadius: e.target.value})}
+                  placeholder="0px"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Duration (minutes)</Label>
+                <Input 
+                  type="number"
+                  value={announcementForm.duration}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, duration: Number(e.target.value)})}
+                />
+              </div>
+              <div className="flex items-center pt-6">
+                <input 
+                  type="checkbox"
+                  id="closable"
+                  checked={announcementForm.closable}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, closable: e.target.checked})}
+                  className="mr-2"
+                />
+                <Label htmlFor="closable" className="font-normal">Closable</Label>
+              </div>
+            </div>
+            
+            <Separator className="my-4" />
+            <p className="text-sm font-medium mb-2">Button Options</p>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Button Text</Label>
+                <Input 
+                  placeholder="e.g., Shop Now"
+                  value={announcementForm.buttonText}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonText: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Button Link</Label>
+                <Input 
+                  placeholder="e.g., /shop or https://..."
+                  value={announcementForm.buttonLink}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonLink: e.target.value})}
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Button Color</Label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="color"
+                    value={announcementForm.buttonColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonColor: e.target.value})}
+                    className="w-12 h-10 p-1"
+                  />
+                  <Input 
+                    value={announcementForm.buttonColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonColor: e.target.value})}
+                    placeholder="#ffffff"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Button Background</Label>
+                <div className="flex gap-2">
+                  <Input 
+                    type="color"
+                    value={announcementForm.buttonBgColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonBgColor: e.target.value})}
+                    className="w-12 h-10 p-1"
+                  />
+                  <Input 
+                    value={announcementForm.buttonBgColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonBgColor: e.target.value})}
+                    placeholder="#000000"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Button Padding</Label>
+                <Input 
+                  value={announcementForm.buttonPadding}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonPadding: e.target.value})}
+                  placeholder="8px 16px"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Button Radius</Label>
+                <Input 
+                  value={announcementForm.buttonRadius}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonRadius: e.target.value})}
+                  placeholder="4px"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Text Font Family</Label>
+                <Input 
+                  placeholder="e.g., sans-serif"
+                  value={announcementForm.fontFamily}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, fontFamily: e.target.value})}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Text Font Weight</Label>
+                <Select value={announcementForm.fontWeight} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontWeight: val})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Normal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="300">Light</SelectItem>
+                    <SelectItem value="400">Normal</SelectItem>
+                    <SelectItem value="500">Medium</SelectItem>
+                    <SelectItem value="600">Semi-Bold</SelectItem>
+                    <SelectItem value="700">Bold</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="flex gap-2 pt-4">
+              <Button 
+                className="flex-1"
+                onClick={async () => {
+                  if (!announcementForm.text.trim()) {
+                    toast.error('Please enter announcement text');
+                    return;
+                  }
+                  try {
+                    const id = announcementForm.id || crypto.randomUUID();
+                    await api.post('/announcements', {
+                      ...announcementForm,
+                      id
+                    });
+                    toast.success(editingAnnouncement ? 'Announcement updated' : 'Announcement created');
+                    setShowAnnouncementModal(false);
+                    setEditingAnnouncement(null);
+                    setAnnouncementForm({ id: '', text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' });
+                    fetchData();
+                  } catch (error) {
+                    console.error("Failed to save announcement", error);
+                    toast.error('Failed to save announcement');
+                  }
+                }}
+              >
+                {editingAnnouncement ? 'Update' : 'Create'} Announcement
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => { setShowAnnouncementModal(false); setEditingAnnouncement(null); }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!selectedOrderForAdmin} onOpenChange={() => { setSelectedOrderForAdmin(null); setSubOrders([]); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Order Details</DialogTitle>
+            <DialogDescription>Order #{selectedOrderForAdmin?.id.slice(-8).toUpperCase()}</DialogDescription>
+          </DialogHeader>
+          {selectedOrderForAdmin && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Status</p>
+                  <Badge variant={selectedOrderForAdmin.status === 'delivered' ? 'default' : selectedOrderForAdmin.status === 'cancelled' ? 'destructive' : 'secondary'} className="capitalize">
+                    {selectedOrderForAdmin.status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="font-medium">{formatPrice(selectedOrderForAdmin.total)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Customer ID</p>
+                  <p className="font-mono text-sm">{selectedOrderForAdmin.customerId}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Date</p>
+                  <p className="text-sm">{new Date(selectedOrderForAdmin.createdAt).toLocaleString()}</p>
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Items</p>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {selectedOrderForAdmin.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-sm p-2 bg-secondary/30 rounded">
+                      <span>{item.name} x{item.quantity}</span>
+                      <span>{formatPrice(item.price * item.quantity)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Sub-Orders (Per Seller)</p>
+                <div className="space-y-2">
+                  {subOrders.map(sub => (
+                    <div key={sub.id} className="p-3 bg-secondary/30 rounded">
+                      <div className="flex justify-between mb-1">
+                        <span className="text-xs font-mono">{sub.sellerId?.slice(0, 8)}...</span>
+                        <Badge variant="secondary" className="text-xs">{sub.status}</Badge>
+                      </div>
+                      <p className="text-sm">Subtotal: {formatPrice(sub.subtotal)}</p>
+                      <p className="text-xs text-muted-foreground">Commission (3%): {formatPrice(sub.commission)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {selectedOrderForAdmin.deliveryAddress && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Delivery Address</p>
+                  <p className="text-sm">{selectedOrderForAdmin.deliveryAddress}, {selectedOrderForAdmin.city}</p>
+                </div>
+              )}
+              
+              <div className="flex gap-2 pt-4">
+                <Button className="flex-1" onClick={() => window.open(`/api/orders/${selectedOrderForAdmin.id}/receipt/download`, '_blank')}>
+                  <FileText className="h-4 w-4 mr-2" /> Download Receipt
+                </Button>
+                <Button variant="outline" onClick={() => { setSelectedOrderForAdmin(null); setSubOrders([]); }}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!selectedBusiness} onOpenChange={() => setSelectedBusiness(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Business Details</DialogTitle>
+            <DialogDescription>Business verification information and details</DialogDescription>
+          </DialogHeader>
+          {selectedBusiness && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage src={selectedBusiness.user?.photoURL} />
+                  <AvatarFallback>{selectedBusiness.user?.displayName?.[0] || '?'}</AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="text-xl font-medium">{selectedBusiness.user?.displayName || 'Unknown User'}</p>
+                  <p className="text-sm text-muted-foreground">{selectedBusiness.user?.email}</p>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Business Name</p>
+                  <p className="font-medium">{selectedBusiness.user?.businessName || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Location</p>
+                  <p className="font-medium">{selectedBusiness.user?.location || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">MTN Phone</p>
+                  <p className="font-medium">{selectedBusiness.user?.phoneMTN || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Airtel Phone</p>
+                  <p className="font-medium">{selectedBusiness.user?.phoneAirtel || 'N/A'}</p>
+                </div>
+              </div>
+              
+              <div className="border-t pt-4">
+                <p className="text-sm font-medium mb-2">Verification Information</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Registered Email</p>
+                    <p className="font-medium">{selectedBusiness.verification?.registeredEmail || 'Not provided'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Registered Phone</p>
+                    <p className="font-medium">{selectedBusiness.verification?.registeredPhone || 'Not provided'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">NIN Number</p>
+                    <p className="font-medium">{selectedBusiness.verification?.ninNumber || 'Not provided'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Submitted</p>
+                    <p className="font-medium">{selectedBusiness.verification?.submittedAt ? new Date(selectedBusiness.verification.submittedAt).toLocaleString() : 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {selectedBusiness.verification?.nationalIdFront && (
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium mb-2">Submitted Documents</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {selectedBusiness.verification?.nationalIdFront && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">National ID Front</p>
+                        <img src={selectedBusiness.verification.nationalIdFront} alt="NIN Front" className="h-24 w-full object-cover rounded border" />
+                      </div>
+                    )}
+                    {selectedBusiness.verification?.nationalIdBack && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">National ID Back</p>
+                        <img src={selectedBusiness.verification.nationalIdBack} alt="NIN Back" className="h-24 w-full object-cover rounded border" />
+                      </div>
+                    )}
+                    {selectedBusiness.verification?.passportPhoto && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Passport Photo</p>
+                        <img src={selectedBusiness.verification.passportPhoto} alt="Passport" className="h-24 w-full object-cover rounded border" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {selectedBusiness.user?.businessDescription && (
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium mb-2">Business Description</p>
+                  <p className="text-sm">{selectedBusiness.user.businessDescription}</p>
+                </div>
+              )}
+              
+              <div className="flex gap-2 pt-4">
+                <Button className="flex-1" onClick={() => {
+                  const printWindow = window.open('', '_blank');
+                  if (printWindow) {
+                    printWindow.document.write(`
+                      <html>
+                      <head>
+                        <title>Business Details - ${selectedBusiness.user?.displayName}</title>
+                        <style>
+                          body { font-family: Arial, sans-serif; padding: 20px; }
+                          .header { margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 10px; }
+                          .section { margin-bottom: 20px; }
+                          .section h3 { border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+                          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+                          .label { color: #666; font-size: 12px; }
+                          .value { font-weight: bold; }
+                          img { max-width: 200px; height: auto; margin: 10px 0; }
+                        </style>
+                      </head>
+                      <body>
+                        <div class="header">
+                          <h1>Business Verification Details</h1>
+                          <p>Generated: ${new Date().toLocaleString()}</p>
+                        </div>
+                        <div class="section">
+                          <h3>Business Information</h3>
+                          <div class="grid">
+                            <div><span class="label">Business Name:</span> <span class="value">${selectedBusiness.user?.businessName || 'N/A'}</span></div>
+                            <div><span class="label">Location:</span> <span class="value">${selectedBusiness.user?.location || 'N/A'}</span></div>
+                            <div><span class="label">MTN Phone:</span> <span class="value">${selectedBusiness.user?.phoneMTN || 'N/A'}</span></div>
+                            <div><span class="label">Airtel Phone:</span> <span class="value">${selectedBusiness.user?.phoneAirtel || 'N/A'}</span></div>
+                          </div>
+                        </div>
+                        <div class="section">
+                          <h3>Verification Information</h3>
+                          <div class="grid">
+                            <div><span class="label">Registered Email:</span> <span class="value">${selectedBusiness.verification?.registeredEmail || 'N/A'}</span></div>
+                            <div><span class="label">Registered Phone:</span> <span class="value">${selectedBusiness.verification?.registeredPhone || 'N/A'}</span></div>
+                            <div><span class="label">NIN Number:</span> <span class="value">${selectedBusiness.verification?.ninNumber || 'N/A'}</span></div>
+                            <div><span class="label">Submitted:</span> <span class="value">${selectedBusiness.verification?.submittedAt ? new Date(selectedBusiness.verification.submittedAt).toLocaleString() : 'N/A'}</span></div>
+                          </div>
+                        </div>
+                        ${selectedBusiness.user?.businessDescription ? `
+                        <div class="section">
+                          <h3>Business Description</h3>
+                          <p>${selectedBusiness.user.businessDescription}</p>
+                        </div>
+                        ` : ''}
+                      </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                    printWindow.print();
+                  }
+                }}>
+                  <FileText className="h-4 w-4 mr-2" /> Print / Download
+                </Button>
+                <Button variant="outline" onClick={() => setSelectedBusiness(null)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!showDenyModal} onOpenChange={() => { setShowDenyModal(null); setDenialReason(''); }}>
         <DialogContent>
@@ -3894,7 +4553,21 @@ const OrdersView = ({ user }: { user: User }) => {
           confirmedAt: new Date().toISOString()
         }
       });
-      toast.success('Delivery confirmed!');
+      
+      // Save delivery receipt
+      await api.post('/delivery-receipts', {
+        id: crypto.randomUUID(),
+        orderId,
+        subOrderId: null,
+        customerId: user?.uid,
+        sellerId: selectedOrder?.sellerIds?.[0] || null,
+        confirmedAt: new Date().toISOString(),
+        confirmedBy: deliveryData.receiverName,
+        confirmationNotes: `Phone: ${deliveryData.phoneNumber}`,
+        photoUrls: []
+      });
+      
+      toast.success('Delivery confirmed! Receipt saved.');
       setShowDeliveryForm(false);
       fetchOrders();
     } catch (error) {
@@ -3956,8 +4629,15 @@ const OrdersView = ({ user }: { user: User }) => {
 
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
     try {
+      const order = orders.find(o => o.id === orderId);
       await api.patch(`/orders/${orderId}/status`, { status: newStatus });
       fetchOrders();
+      
+      // Send push notification to customer
+      if (order && (newStatus === 'processing' || newStatus === 'shipped' || newStatus === 'delivered' || newStatus === 'cancelled')) {
+        await sendOrderNotification(order.customerId, orderId, newStatus as any, order.total);
+      }
+      
       toast.success(`Order marked as ${newStatus}`);
     } catch (error) {
       toast.error('Failed to update order status');
@@ -4189,7 +4869,7 @@ const OrdersView = ({ user }: { user: User }) => {
                 </div>
               )}
 
-{user.role === 'customer' && selectedOrder.deliveryConfirmation?.acceptanceStatus && (
+              {user.role === 'customer' && selectedOrder.deliveryConfirmation?.acceptanceStatus && (
                 <Button className='w-full' onClick={() => setShowReceipt(true)}>
                   <Download className='mr-2 h-4 w-4' /> Download Receipt
                 </Button>
@@ -4487,6 +5167,20 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
 
   const handlePaymentSuccess = async (details: any) => {
     try {
+      const sellerIds = Array.from(new Set(items.map(item => products.find(p => p.id === item.productId)?.sellerId).filter(Boolean) as string[]));
+      
+      // Create sub-orders for each seller
+      const subOrders = sellerIds.map(sellerId => {
+        const sellerItems = items.filter(item => products.find(p => p.id === item.productId)?.sellerId === sellerId);
+        const subtotal = sellerItems.reduce((sum, item) => sum + calculateItemPrice(item), 0);
+        return {
+          id: crypto.randomUUID(),
+          sellerId,
+          items: sellerItems,
+          subtotal
+        };
+      });
+      
       const orderData: Order = {
         id: crypto.randomUUID(),
         customerId: user!.uid,
@@ -4494,7 +5188,7 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         total: discountedTotal,
         status: 'pending',
         paymentId: details.id,
-        sellerIds: Array.from(new Set(items.map(item => products.find(p => p.id === item.productId)?.sellerId).filter(Boolean) as string[])),
+        sellerIds,
         createdAt: new Date().toISOString(),
         receiverName: shippingInfo.receiverName,
         phoneMTN: shippingInfo.phoneMTN,
@@ -4505,7 +5199,8 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         statusHistory: [{ status: 'pending', updatedAt: new Date().toISOString(), note: 'Order placed successfully' }],
         rentFee: discountedTotal * 0.03
       };
-      await api.post('/orders', orderData);
+      
+      await api.post('/orders', { ...orderData, subOrders });
       
       // Update stock
       for (const item of items) {
@@ -4515,11 +5210,20 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
         }
       }
 
+      // Send push notification to customer
+      await sendOrderNotification(user!.uid, orderData.id, 'success', discountedTotal);
+      
+      // Send notifications to sellers
+      for (const subOrder of subOrders) {
+        await sendNewOrderToSeller(subOrder.sellerId, orderData.id, user!.displayName, subOrder.subtotal, subOrder.items.length);
+      }
+
       clearCart();
       toast.success("Order placed successfully!");
       onComplete();
     } catch (error) {
       toast.error("Failed to place order");
+      await sendPushNotification(user!.uid, 'Order Failed', 'Failed to place your order. Please try again.');
     }
   };
 
@@ -4921,9 +5625,9 @@ const AppContent = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [menuSection, setMenuSection] = useState<string | null>(null);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  const [announcement, setAnnouncement] = useState<{text: string, theme: string, fontSize: string, padding: string, borderRadius: string, duration: number, closable: boolean} | null>(null);
+  const [announcement, setAnnouncement] = useState<{text: string, theme: string, fontSize: string, fontFamily?: string, fontWeight?: string, padding: string, borderRadius: string, duration: number, closable: boolean, buttonText?: string, buttonColor?: string, buttonBgColor?: string, buttonLink?: string, buttonPadding?: string, buttonRadius?: string} | null>(null);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
-  const [announcementData, setAnnouncementData] = useState({ text: '', theme: 'accent', fontSize: 'text-sm', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true });
+  const [announcementData, setAnnouncementData] = useState({ text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' });
   const [isInChat, setIsInChat] = useState(false);
   const [compareList, setCompareList] = useState<Product[]>([]);
   const [showCompare, setShowCompare] = useState(false);
@@ -5061,20 +5765,39 @@ const toggleCompare = (product: Product) => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`fixed top-0 left-0 right-0 z-50 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable ? 'cursor-pointer' : ''}`}
+          className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-2 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable && !announcement.buttonText ? 'cursor-pointer' : ''}`}
           style={{
             fontSize: announcement.fontSize,
             padding: announcement.padding,
             borderRadius: announcement.borderRadius,
+            fontFamily: announcement.fontFamily || 'inherit',
+            fontWeight: announcement.fontWeight || 400,
           }}
           onClick={() => {
-            if (announcement.closable) {
+            if (announcement.closable && !announcement.buttonText) {
               setAnnouncement(null);
             }
           }}
         >
-          <div className="container mx-auto text-center text-paper font-medium">
-            {announcement.text}
+          <div className="container mx-auto text-center text-paper font-medium flex items-center justify-center gap-3 flex-wrap">
+            <span>{announcement.text}</span>
+            {announcement.buttonText && (
+              <a 
+                href={announcement.buttonLink || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center px-4 py-1 text-sm font-medium rounded transition-opacity hover:opacity-90"
+                style={{
+                  color: announcement.buttonColor || '#ffffff',
+                  backgroundColor: announcement.buttonBgColor || '#000000',
+                  padding: announcement.buttonPadding || '8px 16px',
+                  borderRadius: announcement.buttonRadius || '4px'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {announcement.buttonText}
+              </a>
+            )}
           </div>
           {announcement?.closable && (
             <button className="absolute right-4 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setAnnouncement(null); }}>✕</button>

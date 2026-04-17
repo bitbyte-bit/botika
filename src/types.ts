@@ -155,3 +155,25 @@ export interface Review {
   comment: string;
   createdAt: string;
 }
+
+export interface Announcement {
+  id: string;
+  text: string;
+  theme: string;
+  fontSize: string;
+  fontFamily?: string;
+  fontWeight?: string;
+  padding: string;
+  borderRadius: string;
+  duration: number;
+  closable: boolean;
+  createdAt: string;
+  expiresAt?: string;
+  status: 'active' | 'paused' | 'expired';
+  buttonText?: string;
+  buttonColor?: string;
+  buttonBgColor?: string;
+  buttonLink?: string;
+  buttonPadding?: string;
+  buttonRadius?: string;
+}

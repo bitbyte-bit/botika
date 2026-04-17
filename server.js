@@ -96,7 +96,37 @@ db.exec(`
     pickupOption TEXT,
     deliveryAddress TEXT,
     city TEXT,
-    deliveryConfirmation TEXT
+    deliveryConfirmation TEXT,
+    subOrders TEXT,
+    commissionPaid INTEGER DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS sub_orders (
+    id TEXT PRIMARY KEY,
+    orderId TEXT,
+    sellerId TEXT,
+    items TEXT,
+    subtotal REAL,
+    commission REAL DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    createdAt TEXT,
+    deliveredAt TEXT,
+    FOREIGN KEY (orderId) REFERENCES orders(id),
+    FOREIGN KEY (sellerId) REFERENCES users(uid)
+  );
+
+  CREATE TABLE IF NOT EXISTS delivery_receipts (
+    id TEXT PRIMARY KEY,
+    orderId TEXT,
+    subOrderId TEXT,
+    customerId TEXT,
+    sellerId TEXT,
+    confirmedAt TEXT,
+    confirmedBy TEXT,
+    confirmationNotes TEXT,
+    photoUrls TEXT,
+    FOREIGN KEY (orderId) REFERENCES orders(id),
+    FOREIGN KEY (subOrderId) REFERENCES sub_orders(id)
   );
 
   CREATE TABLE IF NOT EXISTS messages (
@@ -188,12 +218,21 @@ db.exec(`
     text TEXT NOT NULL,
     theme TEXT DEFAULT 'accent',
     fontSize TEXT DEFAULT 'text-sm',
+    fontFamily TEXT,
+    fontWeight TEXT,
     padding TEXT DEFAULT '8px 16px',
     borderRadius TEXT DEFAULT '0px',
     duration INTEGER DEFAULT 60,
     closable INTEGER DEFAULT 1,
     createdAt TEXT,
-    expiresAt TEXT
+    expiresAt TEXT,
+    status TEXT DEFAULT 'active',
+    buttonText TEXT,
+    buttonColor TEXT DEFAULT '#ffffff',
+    buttonBgColor TEXT DEFAULT '#000000',
+    buttonLink TEXT,
+    buttonPadding TEXT DEFAULT '8px 16px',
+    buttonRadius TEXT DEFAULT '4px'
   );
 
   CREATE INDEX IF NOT EXISTS idx_products_seller ON products(sellerId);
@@ -363,12 +402,21 @@ async function startServer() {
       limitNum = Math.min(Number(limit) || 50, 100);
     }
     const offsetNum = Number(offset) || 0;
-    const users = db.prepare("SELECT * FROM users LIMIT ? OFFSET ?").all(limitNum, offsetNum);
+    const users = db.prepare(`
+      SELECT u.*, s.lastSeen as lastSeen, s.isOnline 
+      FROM users u 
+      LEFT JOIN user_status s ON u.uid = s.userId 
+      LIMIT ? OFFSET ?
+    `).all(limitNum, offsetNum);
     res.json(users);
   });
 
   app.get("/api/users/all", (req, res) => {
-    const users = db.prepare("SELECT * FROM users").all();
+    const users = db.prepare(`
+      SELECT u.*, s.lastSeen as lastSeen, s.isOnline 
+      FROM users u 
+      LEFT JOIN user_status s ON u.uid = s.userId
+    `).all();
     res.json(users);
   });
 
@@ -562,22 +610,58 @@ async function startServer() {
     const now = new Date().toISOString();
     const announcements = db.prepare(`
       SELECT * FROM announcements 
-      WHERE (expiresAt IS NULL OR expiresAt > ?)
+      WHERE status = 'active' AND (expiresAt IS NULL OR expiresAt > ?)
       ORDER BY createdAt DESC
     `).all(now);
     res.json(announcements);
   });
 
   app.post("/api/announcements", (req, res) => {
-    const { id, text, theme, fontSize, padding, borderRadius, duration, closable } = req.body;
+    const { id, text, theme, fontSize, fontFamily, fontWeight, padding, borderRadius, duration, closable, buttonText, buttonColor, buttonBgColor, buttonLink, buttonPadding, buttonRadius } = req.body;
     const now = new Date().toISOString();
     const expiresAt = duration > 0 ? new Date(Date.now() + duration * 60 * 1000).toISOString() : null;
     
     db.prepare(`
-      INSERT OR REPLACE INTO announcements (id, text, theme, fontSize, padding, borderRadius, duration, closable, createdAt, expiresAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, text, theme || 'accent', fontSize || 'text-sm', padding || '8px 16px', borderRadius || '0px', duration || 60, closable ? 1 : 0, now, expiresAt);
+      INSERT OR REPLACE INTO announcements (id, text, theme, fontSize, fontFamily, fontWeight, padding, borderRadius, duration, closable, createdAt, expiresAt, status, buttonText, buttonColor, buttonBgColor, buttonLink, buttonPadding, buttonRadius)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+    `).run(id, text, theme || 'accent', fontSize || 'text-sm', fontFamily || null, fontWeight || null, padding || '8px 16px', borderRadius || '0px', duration || 60, closable ? 1 : 0, now, expiresAt, buttonText || null, buttonColor || '#ffffff', buttonBgColor || '#000000', buttonLink || null, buttonPadding || '8px 16px', buttonRadius || '4px');
     
+    res.json({ success: true });
+  });
+
+  app.patch("/api/announcements/:id", (req, res) => {
+    const { text, theme, fontSize, padding, borderRadius, duration, closable, status } = req.body;
+    const updates = [];
+    const params = [];
+    
+    if (text !== undefined) { updates.push('text = ?'); params.push(text); }
+    if (theme !== undefined) { updates.push('theme = ?'); params.push(theme); }
+    if (fontSize !== undefined) { updates.push('fontSize = ?'); params.push(fontSize); }
+    if (fontFamily !== undefined) { updates.push('fontFamily = ?'); params.push(fontFamily); }
+    if (fontWeight !== undefined) { updates.push('fontWeight = ?'); params.push(fontWeight); }
+    if (padding !== undefined) { updates.push('padding = ?'); params.push(padding); }
+    if (borderRadius !== undefined) { updates.push('borderRadius = ?'); params.push(borderRadius); }
+    if (duration !== undefined) {
+      updates.push('duration = ?'); params.push(duration);
+      if (duration > 0) {
+        updates.push('expiresAt = ?'); params.push(new Date(Date.now() + duration * 60 * 1000).toISOString());
+      }
+    }
+    if (closable !== undefined) { updates.push('closable = ?'); params.push(closable ? 1 : 0); }
+    if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+    if (buttonText !== undefined) { updates.push('buttonText = ?'); params.push(buttonText); }
+    if (buttonColor !== undefined) { updates.push('buttonColor = ?'); params.push(buttonColor); }
+    if (buttonBgColor !== undefined) { updates.push('buttonBgColor = ?'); params.push(buttonBgColor); }
+    if (buttonLink !== undefined) { updates.push('buttonLink = ?'); params.push(buttonLink); }
+    if (buttonPadding !== undefined) { updates.push('buttonPadding = ?'); params.push(buttonPadding); }
+    if (buttonRadius !== undefined) { updates.push('buttonRadius = ?'); params.push(buttonRadius); }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    
+    params.push(req.params.id);
+    db.prepare(`UPDATE announcements SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     res.json({ success: true });
   });
 
@@ -837,13 +921,144 @@ if (all === 'true') {
   });
 
   app.post("/api/orders", (req, res) => {
-    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation } = req.body;
+    const { id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders } = req.body;
+    
     const stmt = db.prepare(`
-      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orders (id, customerId, items, total, status, paymentId, trackingNumber, sellerIds, createdAt, rentFee, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation, subOrders, commissionPaid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null);
+    stmt.run(id, customerId, JSON.stringify(items), total, status || 'pending', paymentId, trackingNumber, JSON.stringify(sellerIds), createdAt, rentFee || 0, receiverName, phoneMTN, phoneAirtel, pickupOption, deliveryAddress, city, deliveryConfirmation ? JSON.stringify(deliveryConfirmation) : null, JSON.stringify(subOrders || []), 0);
+    
+    // Create sub-orders for each seller
+    if (subOrders && subOrders.length > 0) {
+      for (const sub of subOrders) {
+        const commission = sub.subtotal * 0.03; // 3% commission
+        db.prepare(`
+          INSERT INTO sub_orders (id, orderId, sellerId, items, subtotal, commission, status, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(sub.id, id, sub.sellerId, JSON.stringify(sub.items), sub.subtotal, commission, 'pending', createdAt);
+      }
+    }
+    
     res.json({ success: true });
+  });
+
+  app.get("/api/orders/:id/sub-orders", (req, res) => {
+    const subOrders = db.prepare("SELECT * FROM sub_orders WHERE orderId = ?").all(req.params.id);
+    res.json(subOrders.map(s => ({ ...s, items: JSON.parse(s.items || '[]') })));
+  });
+
+  app.patch("/api/sub-orders/:id/status", (req, res) => {
+    const { status } = req.body;
+    const now = new Date().toISOString();
+    if (status === 'delivered') {
+      db.prepare('UPDATE sub_orders SET status = ?, deliveredAt = ? WHERE id = ?').run(status, now, req.params.id);
+    } else {
+      db.prepare('UPDATE sub_orders SET status = ? WHERE id = ?').run(status, req.params.id);
+    }
+    res.json({ success: true });
+  });
+
+  app.post("/api/delivery-receipts", (req, res) => {
+    const { id, orderId, subOrderId, customerId, sellerId, confirmedAt, confirmedBy, confirmationNotes, photoUrls } = req.body;
+    db.prepare(`
+      INSERT INTO delivery_receipts (id, orderId, subOrderId, customerId, sellerId, confirmedAt, confirmedBy, confirmationNotes, photoUrls)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, orderId, subOrderId, customerId, sellerId, confirmedAt, confirmedBy, confirmationNotes, JSON.stringify(photoUrls || []));
+    res.json({ success: true });
+  });
+
+  app.get("/api/orders/:id/receipt", (req, res) => {
+    const receipts = db.prepare("SELECT * FROM delivery_receipts WHERE orderId = ?").all(req.params.id);
+    res.json(receipts.map(r => ({ ...r, photoUrls: JSON.parse(r.photoUrls || '[]') })));
+  });
+
+  app.get("/api/orders/:id/receipt/download", (req, res) => {
+    const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
+    const subOrders = db.prepare("SELECT * FROM sub_orders WHERE orderId = ?").all(req.params.id);
+    const receipts = db.prepare("SELECT * FROM delivery_receipts WHERE orderId = ?").all(req.params.id);
+    
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    
+    const receiptHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Delivery Receipt - Order #${order.id.slice(-8).toUpperCase()}</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+    .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
+    .section { margin-bottom: 20px; }
+    .section h3 { border-bottom: 1px solid #ddd; padding-bottom: 10px; }
+    .item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+    .total { font-size: 18px; font-weight: bold; margin-top: 20px; }
+    .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; }
+    .signature { display: flex; justify-content: space-between; margin-top: 60px; }
+    .signature-line { text-align: center; width: 45%; }
+    .signature-line p { border-top: 1px solid #333; padding-top: 10px; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Delivery Confirmation Receipt</h1>
+    <p>Order #${order.id.slice(-8).toUpperCase()}</p>
+    <p>Date: ${new Date(order.createdAt).toLocaleDateString()}</p>
+  </div>
+  
+  <div class="section">
+    <h3>Customer Information</h3>
+    <p><strong>Name:</strong> ${order.receiverName || 'N/A'}</p>
+    <p><strong>Phone:</strong> ${order.phoneMTN || order.phoneAirtel || 'N/A'}</p>
+    <p><strong>Delivery Address:</strong> ${order.deliveryAddress || order.pickupOption || 'N/A'}</p>
+  </div>
+  
+  <div class="section">
+    <h3>Items</h3>
+    ${(JSON.parse(order.items || '[]')).map(item => `
+      <div class="item">
+        <span>${item.name} x ${item.quantity}</span>
+        <span>UGX ${item.price?.toLocaleString()}</span>
+      </div>
+    `).join('')}
+    <div class="item total">
+      <span>Total Paid</span>
+      <span>UGX ${order.total?.toLocaleString()}</span>
+    </div>
+  </div>
+  
+  <div class="section">
+    <h3>Commission</h3>
+    <p>3% platform commission has been deducted from each sub-order.</p>
+    ${subOrders.map(sub => `
+      <div class="item">
+        <span>Seller: ${sub.sellerId}</span>
+        <span>UGX ${sub.commission?.toLocaleString()}</span>
+      </div>
+    `).join('')}
+  </div>
+  
+  ${receipts.length > 0 ? `
+  <div class="section">
+    <h3>Delivery Confirmation</h3>
+    ${receipts.map(r => `
+      <p><strong>Confirmed by:</strong> ${r.confirmedBy}</p>
+      <p><strong>Date:</strong> ${new Date(r.confirmedAt).toLocaleString()}</p>
+      <p><strong>Notes:</strong> ${r.confirmationNotes || 'None'}</p>
+    `).join('')}
+  </div>
+  ` : ''}
+  
+  <div class="footer">
+    <p>This is an official receipt confirming the delivery of order items.</p>
+    <p>Generated on: ${new Date().toLocaleString()}</p>
+  </div>
+</body>
+</html>`;
+    
+    res.send(receiptHtml);
   });
 
   app.patch('/api/orders/:id/status', (req, res) => {
@@ -947,7 +1162,7 @@ if (all === 'true') {
     res.json(conversations);
   });
 
-  app.post("/api/messages", (req, res) => {
+  app.post("/api/messages", async (req, res) => {
     const { id, senderId, senderName, receiverId, content, createdAt, type, read, currentUserId } = req.body;
     
     if (!currentUserId) {
@@ -976,6 +1191,39 @@ if (all === 'true') {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(id, senderId, senderName, receiverId, content, createdAt, type, read ? 1 : 0);
+    
+    // Send push notification to receiver
+    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(receiverId);
+    if (tokenEntry) {
+      let messagePreview = content;
+      if (type === 'image') {
+        messagePreview = 'Sent an image';
+      } else if (type === 'file') {
+        messagePreview = 'Sent a file';
+      } else {
+        messagePreview = content.length > 50 ? content.substring(0, 50) + '...' : content;
+      }
+      
+      const notificationTitle = `New message from ${senderName}`;
+      const notificationBody = messagePreview;
+      
+      try {
+        await webpush.sendNotification(
+          JSON.parse(tokenEntry.token),
+          JSON.stringify({
+            title: notificationTitle,
+            body: notificationBody,
+            data: { type: 'message', senderId, messageId: id }
+          })
+        );
+      } catch (error) {
+        console.error("Push notification error:", error.message);
+        if (error.statusCode === 410) {
+          db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(receiverId);
+        }
+      }
+    }
+    
     res.json({ success: true });
   });
 
@@ -1238,6 +1486,172 @@ if (all === 'true') {
       res.json({ success: true });
     } catch (error) {
       console.error("Push notification error:", error.message);
+      if (error.statusCode === 410) {
+        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
+      }
+      res.json({ success: false, error: error.message });
+    }
+  });
+
+  // Broadcast notification to all subscribed users
+  app.post("/api/notifications/broadcast", async (req, res) => {
+    const { title, body, data } = req.body;
+    const tokens = db.prepare("SELECT * FROM fcm_tokens").all();
+    
+    if (tokens.length === 0) {
+      return res.json({ success: false, error: "No subscribers" });
+    }
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const tokenEntry of tokens) {
+      try {
+        await webpush.sendNotification(
+          JSON.parse(tokenEntry.token),
+          JSON.stringify({ title, body, data })
+        );
+        successCount++;
+      } catch (error) {
+        failCount++;
+        if (error.statusCode === 410) {
+          db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(tokenEntry.userId);
+        }
+      }
+    }
+    
+    console.log(`Broadcast: ${successCount} success, ${failCount} failed`);
+    res.json({ success: true, successCount, failCount });
+  });
+
+  // Send order notification
+  app.post("/api/notifications/order", async (req, res) => {
+    const { userId, orderId, status, amount, sellerName } = req.body;
+    
+    let title = '';
+    let body = '';
+    let notificationData = { type: 'order', orderId, status };
+    
+    switch (status) {
+      case 'success':
+        title = 'Order Placed Successfully!';
+        body = `Your order #${orderId.slice(-6).toUpperCase()} for UGX ${amount?.toLocaleString()} has been confirmed.`;
+        break;
+      case 'processing':
+        title = 'Order Being Processed';
+        body = `Your order #${orderId.slice(-6).toUpperCase()} is being prepared for delivery.`;
+        break;
+      case 'shipped':
+        title = 'Order Shipped!';
+        body = `Your order #${orderId.slice(-6).toUpperCase()} is on its way!`;
+        break;
+      case 'delivered':
+        title = 'Order Delivered';
+        body = `Your order #${orderId.slice(-6).toUpperCase()} has been delivered. Please confirm receipt.`;
+        break;
+      case 'cancelled':
+        title = 'Order Cancelled';
+        body = `Your order #${orderId.slice(-6).toUpperCase()} has been cancelled.`;
+        break;
+      case 'failed':
+        title = 'Payment Failed';
+        body = `Payment for order #${orderId.slice(-6).toUpperCase()} failed. Please try again.`;
+        break;
+      default:
+        title = 'Order Update';
+        body = `Your order #${orderId.slice(-6).toUpperCase()} status: ${status}`;
+    }
+    
+    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
+    if (!tokenEntry) {
+      return res.json({ success: false, error: "No token" });
+    }
+    
+    try {
+      await webpush.sendNotification(
+        JSON.parse(tokenEntry.token),
+        JSON.stringify({ title, body, data: notificationData })
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Order notification error:", error.message);
+      if (error.statusCode === 410) {
+        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
+      }
+      res.json({ success: false, error: error.message });
+    }
+  });
+
+  // Send notification to seller when new order
+  app.post("/api/notifications/new-order", async (req, res) => {
+    const { sellerId, orderId, customerName, total, itemCount } = req.body;
+    
+    const title = 'New Order Received!';
+    const body = `${customerName} placed an order (UGX ${total?.toLocaleString()}) - ${itemCount} item(s)`;
+    const notificationData = { type: 'new_order', orderId };
+    
+    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(sellerId);
+    if (!tokenEntry) {
+      return res.json({ success: false, error: "No token" });
+    }
+    
+    try {
+      await webpush.sendNotification(
+        JSON.parse(tokenEntry.token),
+        JSON.stringify({ title, body, data: notificationData })
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error("New order notification error:", error.message);
+      if (error.statusCode === 410) {
+        db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(sellerId);
+      }
+      res.json({ success: false, error: error.message });
+    }
+  });
+
+  // Error notification
+  app.post("/api/notifications/error", async (req, res) => {
+    const { userId, errorType, message, details } = req.body;
+    
+    let title = '';
+    let body = '';
+    
+    switch (errorType) {
+      case 'payment':
+        title = 'Payment Error';
+        body = message || 'There was an issue processing your payment. Please try again.';
+        break;
+      case 'verification':
+        title = 'Verification Issue';
+        body = message || 'There was an issue with your business verification.';
+        break;
+      case 'account':
+        title = 'Account Issue';
+        body = message || 'There is an issue with your account. Please contact support.';
+        break;
+      case 'product':
+        title = 'Product Issue';
+        body = message || 'There was an issue with your product listing.';
+        break;
+      default:
+        title = 'Error';
+        body = message || 'An error occurred. Please try again.';
+    }
+    
+    const tokenEntry = db.prepare("SELECT * FROM fcm_tokens WHERE userId = ?").get(userId);
+    if (!tokenEntry) {
+      return res.json({ success: false, error: "No token" });
+    }
+    
+    try {
+      await webpush.sendNotification(
+        JSON.parse(tokenEntry.token),
+        JSON.stringify({ title, body, data: { type: 'error', errorType, details } })
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error notification failed:", error.message);
       if (error.statusCode === 410) {
         db.prepare("DELETE FROM fcm_tokens WHERE userId = ?").run(userId);
       }

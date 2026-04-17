@@ -81,3 +81,76 @@ export const sendPushNotification = async (userId: string, title: string, body: 
     console.error("Failed to send push notification:", error);
   }
 };
+
+export const broadcastNotification = async (title: string, body: string, data?: Record<string, string>) => {
+  try {
+    const response = await fetch('/api/notifications/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body, data })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Failed to broadcast:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const sendOrderNotification = async (
+  userId: string,
+  orderId: string,
+  status: 'success' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'failed',
+  amount?: number,
+  sellerName?: string
+) => {
+  try {
+    const response = await fetch('/api/notifications/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, orderId, status, amount, sellerName })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Failed to send order notification:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const sendNewOrderToSeller = async (
+  sellerId: string,
+  orderId: string,
+  customerName: string,
+  total: number,
+  itemCount: number
+) => {
+  try {
+    const response = await fetch('/api/notifications/new-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sellerId, orderId, customerName, total, itemCount })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Failed to send new order notification:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const sendErrorNotification = async (
+  userId: string,
+  errorType: 'payment' | 'verification' | 'account' | 'product',
+  message: string,
+  details?: string
+) => {
+  try {
+    const response = await fetch('/api/notifications/error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, errorType, message, details })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("Failed to send error notification:", error);
+    return { success: false, error: error.message };
+  }
+};
