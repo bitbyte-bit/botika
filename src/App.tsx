@@ -112,17 +112,18 @@ const updateOpenGraph = (title: string, description: string, image: string, url?
 };
 
 const shareProduct = async (product: Product) => {
+  const shareUrl = `${window.location.origin}/share/product/${product.id}`;
   const shareData = {
     title: `${product.name} - Bikuumba`,
     text: `Check out ${product.name} at Bikuumba - ${product.price} UGX`,
-    url: `${window.location.origin}?product=${product.id}`
+    url: shareUrl
   };
   
   updateOpenGraph(
     `${product.name} - Bikuumba`,
     product.description?.substring(0, 150) || 'Discover this curated item at Bikuumba',
     product.images[0],
-    shareData.url
+    shareUrl
   );
   
   if (navigator.share) {
@@ -3487,7 +3488,7 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick, compareList, o
                 onClick={() => onProductClick(product)}
               />
               {product.isAuthentic && (
-                <div className="absolute top-2 left-2 md:top-4 md:left-4">
+                <div className="absolute top-2 left-2 md:top-4 md:left-4 hidden md:block">
                   <Badge className="bg-paper/90 text-ink backdrop-blur-sm border-none flex items-center gap-1 text-[10px] md:text-xs">
                     <ShieldCheck className="h-3 w-3" /> Authentic
                   </Badge>
@@ -3501,7 +3502,7 @@ const ProductGrid = ({ products, onProductClick, onBusinessClick, compareList, o
                 </div>
               )}
               {product.discount && product.discount > 0 && (
-                <div className='absolute top-2 right-2 md:top-4'>
+                <div className='absolute top-2 right-2 md:top-4 hidden md:block'>
                   <Badge className='bg-red-600 text-white'>
                     -{product.discount}%
                   </Badge>
@@ -3662,7 +3663,7 @@ const handleLike = async () => {
         <ScrollArea className="h-full max-h-[90vh]">
           <div className="space-y-6">
             {product.discount && product.discount > 0 && (
-              <Badge className="absolute top-4 left-4 z-10 bg-red-600 text-white text-lg px-3 py-1">
+              <Badge className="absolute top-4 left-4 z-10 bg-red-600 text-white text-lg px-3 py-1 hidden md:block">
                 -{product.discount}% OFF
               </Badge>
             )}
@@ -4424,7 +4425,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                 <img src={product.images[0]} alt={product.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" referrerPolicy="no-referrer" />
                 <div className="absolute top-2 right-2 flex gap-1">
                   {product.discount && product.discount > 0 && (
-                    <Badge className="bg-red-600 text-white">
+                    <Badge className="bg-red-600 text-white hidden md:block">
                       -{product.discount}%
                     </Badge>
                   )}
