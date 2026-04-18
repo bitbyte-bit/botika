@@ -1318,9 +1318,17 @@ const handleChat = async () => {
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
+))}
+          {filteredProducts.length === 0 && (
+            <div className="col-span-full text-center py-12 bg-secondary/30 rounded-2xl">
+              <Search className="h-12 w-12 mx-auto text-muted-foreground/30" />
+              <p className="text-muted-foreground mt-4">
+                {productSearch ? 'No products match your search' : 'No products yet'}
+              </p>
             </div>
+          )}
+        </div>
+      </div>
           </div>
         </ScrollArea>
       </DialogContent>
@@ -2424,6 +2432,7 @@ const AdminDashboard = () => {
                     setEditingAnnouncement(null);
                     setAnnouncementForm({ id: '', text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' });
                     fetchData();
+                    fetchAnnouncement();
                   } catch (error: any) {
                     console.error("Failed to save announcement", error);
                     const errorMsg = error?.message || error?.response?.data?.error || 'Failed to save announcement';
@@ -4126,11 +4135,20 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
     setNewProduct({ ...newProduct, images });
   };
 
+  const [productSearch, setProductSearch] = useState('');
+
+  const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+    p.category?.toLowerCase().includes(productSearch.toLowerCase())
+  );
+
   const stats = [
     { label: 'Total Sales', value: formatPrice(orders.reduce((sum, o) => sum + o.total, 0)), icon: TrendingUp, color: 'text-emerald-600' },
     { label: 'Total Visits', value: products.reduce((sum, p) => sum + (p.visitCount || 0), 0), icon: Eye, color: 'text-blue-600' },
     { label: 'Item Likes', value: products.reduce((sum, p) => sum + (p.likeCount || 0), 0), icon: Heart, color: 'text-rose-600' },
-    { label: 'Active Orders', value: orders.filter(o => o.status === 'pending' || o.status === 'processing').length, icon: Package, color: 'text-amber-600' },
+    { label: 'Items in Stock', value: totalStock, icon: Package, color: 'text-amber-600' },
+    { label: 'Active Orders', value: orders.filter(o => o.status === 'pending' || o.status === 'processing').length, icon: ShoppingCart, color: 'text-purple-600' },
   ];
 
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -4364,7 +4382,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
         {stats.map((stat, i) => (
           <Card key={i} className="border-none bg-paper shadow-sm">
             <CardContent className="p-6 flex items-center gap-4">
@@ -4425,9 +4443,20 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       </div>
 
       <div className="space-y-6">
-        <h3 className="text-2xl serif">Product Inventory</h3>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h3 className="text-2xl serif">Product Inventory</h3>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search products..."
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              className="pl-10 rounded-full"
+            />
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products.map(product => (
+          {filteredProducts.map(product => (
             <Card key={product.id} className="overflow-hidden border-none bg-paper shadow-sm group">
               <div className="aspect-video relative overflow-hidden bg-secondary">
                 <img src={product.images[0]} alt={product.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" referrerPolicy="no-referrer" />
@@ -5945,42 +5974,39 @@ const toggleCompare = (product: Product) => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-2 ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'} ${announcement.closable && announcement.closable ? 'cursor-pointer' : ''}`}
+          className={`fixed top-0 left-0 right-0 z-50 px-4 py-2 relative ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'}`}
           style={{
             fontSize: announcement.fontSize,
-            padding: announcement.padding,
-            borderRadius: announcement.borderRadius,
             fontFamily: announcement.fontFamily || 'inherit',
             fontWeight: announcement.fontWeight || 400,
           }}
-          onClick={() => {
-            if (announcement.closable && !announcement.buttonText) {
-              setAnnouncement(null);
-            }
-          }}
         >
-          <div className="container mx-auto text-center text-paper font-medium flex items-center justify-center gap-3 flex-wrap">
-            <span>{announcement.text}</span>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <span className="text-paper font-medium" style={{ padding: announcement.closable && announcement.buttonText ? undefined : announcement.padding, borderRadius: announcement.closable && announcement.buttonText ? undefined : announcement.borderRadius }}>
+              {announcement.text}
+            </span>
             {announcement.buttonText && (
               <a 
                 href={announcement.buttonLink || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center px-4 py-1 text-sm font-medium rounded transition-opacity hover:opacity-90"
+                className="inline-flex items-center justify-center text-sm font-medium rounded transition-opacity hover:opacity-90"
                 style={{
                   color: announcement.buttonColor || '#ffffff',
                   backgroundColor: announcement.buttonBgColor || '#000000',
                   padding: announcement.buttonPadding || '8px 16px',
                   borderRadius: announcement.buttonRadius || '4px'
                 }}
-                onClick={(e) => e.stopPropagation()}
               >
                 {announcement.buttonText}
               </a>
             )}
+            {announcement?.closable && !announcement.buttonText && (
+              <button className="text-paper text-xs opacity-70 hover:opacity-100 ml-2" onClick={() => setAnnouncement(null)}>✕</button>
+            )}
           </div>
-          {announcement?.closable && (
-            <button className="absolute right-4 top-1/2 -translate-y-1/2 text-xs opacity-70 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setAnnouncement(null); }}>✕</button>
+          {announcement?.closable && announcement.buttonText && (
+            <button className="absolute right-4 top-1/2 -translate-y-1/2 text-paper text-xs opacity-70 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setAnnouncement(null); }}>✕</button>
           )}
         </motion.div>
       )}
@@ -6148,7 +6174,7 @@ const toggleCompare = (product: Product) => {
                   id: crypto.randomUUID(),
                   ...announcementData
                 });
-                setAnnouncement(announcementData);
+                await fetchAnnouncement();
                 toast.success('Announcement posted!');
                 setShowAnnouncementModal(false);
               } catch (error) {
