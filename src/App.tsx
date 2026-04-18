@@ -555,13 +555,16 @@ const handleEmailAuth = async (e: React.FormEvent) => {
   );
 };
 
-const BottomNav = ({ currentView, onNavigate, unreadCount = 0, hidden = false }: { currentView: string, onNavigate: (view: string) => void, unreadCount?: number, hidden?: boolean }) => {
+const BottomNav = ({ currentView, onNavigate, unreadCount = 0, orderUnreadCount = 0, onOrderBadgeClick, hidden = false }: { currentView: string, onNavigate: (view: string) => void, unreadCount?: number, orderUnreadCount?: number, onOrderBadgeClick?: () => void, hidden?: boolean }) => {
   const { user, login } = useAuth();
 
   const handleBusinessClick = () => {
     if (!user) {
       login();
       return;
+    }
+    if (onOrderBadgeClick && orderUnreadCount > 0) {
+      onOrderBadgeClick();
     }
     onNavigate('inventory');
   };
@@ -594,6 +597,11 @@ const BottomNav = ({ currentView, onNavigate, unreadCount = 0, hidden = false }:
                 {item.id === 'inbox' && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-4 flex items-center justify-center px-1">
                     {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+                {item.id === 'inventory' && orderUnreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-4 min-w-4 flex items-center justify-center px-1">
+                    {orderUnreadCount > 99 ? '99+' : orderUnreadCount}
                   </span>
                 )}
               </div>
@@ -5769,6 +5777,7 @@ const AppContent = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [menuSection, setMenuSection] = useState<string | null>(null);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [unreadOrdersCount, setUnreadOrdersCount] = useState(0);
   const [announcement, setAnnouncement] = useState<{text: string, theme: string, fontSize: string, fontFamily?: string, fontWeight?: string, padding: string, borderRadius: string, duration: number, closable: boolean, buttonText?: string, buttonColor?: string, buttonBgColor?: string, buttonLink?: string, buttonPadding?: string, buttonRadius?: string} | null>(null);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [announcementData, setAnnouncementData] = useState({ text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' });
@@ -5791,11 +5800,28 @@ const AppContent = () => {
     } catch (e) {}
   }, [user]);
 
+  const fetchUnreadOrdersCount = useCallback(async () => {
+    if (!user || (user.role !== 'seller' && user.role !== 'admin' && user.role !== 'master')) {
+      setUnreadOrdersCount(0);
+      return;
+    }
+    try {
+      const orders = await api.get(`/orders?sellerId=${user.uid}&status=pending`);
+      setUnreadOrdersCount(orders?.length || 0);
+    } catch (e) {
+      console.error("Failed to fetch unread orders count", e);
+    }
+  }, [user]);
+
   useEffect(() => {
     fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
+    fetchUnreadOrdersCount();
+    const interval = setInterval(() => {
+      fetchUnreadCount();
+      fetchUnreadOrdersCount();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [fetchUnreadCount]);
+  }, [fetchUnreadCount, fetchUnreadOrdersCount]);
 
   const fetchProducts = async () => {
     try {
@@ -6204,7 +6230,14 @@ const toggleCompare = (product: Product) => {
         {view === 'admin' && user?.role === 'admin' && <AdminDashboard />}
         {view === 'profile' && <ProfileView onNavigate={setView} onSelectSeller={setSelectedSellerId} />}
       </main>
-      <BottomNav currentView={view} onNavigate={setView} unreadCount={unreadMessagesCount} hidden={isInChat} />
+      <BottomNav 
+        currentView={view} 
+        onNavigate={setView} 
+        unreadCount={unreadMessagesCount} 
+        orderUnreadCount={unreadOrdersCount}
+        onOrderBadgeClick={() => setUnreadOrdersCount(0)} 
+        hidden={isInChat} 
+      />
       {selectedProduct && (
         <ProductDetail 
           product={selectedProduct} 
