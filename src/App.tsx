@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { 
   ShoppingBag, 
   Search, 
@@ -90,6 +90,52 @@ import { api } from './services/api';
 import { requestNotificationPermission, subscribeToNewItems, sendPushNotification, onForegroundMessage, sendOrderNotification, sendNewOrderToSeller } from './services/push';
 import { generateEncryptionKey, encryptMessage, decryptMessage } from './services/encryption';
 import { Button } from '@/components/ui/button';
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Uncaught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="text-center space-y-4 p-8">
+            <h1 className="text-2xl font-bold">Something went wrong</h1>
+            <p className="text-muted-foreground">Please refresh the page to continue.</p>
+            <Button onClick={() => window.location.reload()}>Refresh Page</Button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Global unhandled rejection handler to prevent silent failures
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    // Optionally show a toast or error UI
+  });
+  window.addEventListener('error', (event) => {
+    console.error('Global error:', event.error);
+  });
+}
 
 const updateOpenGraph = (title: string, description: string, image: string, url?: string) => {
   const metaIds = [
@@ -225,7 +271,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const savedUser = localStorage.getItem('bikuumba_user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (error) {
+        console.error('Failed to parse saved user data:', error);
+        localStorage.removeItem('bikuumba_user');
+      }
     }
     setLoading(false);
   }, []);
@@ -319,7 +370,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [items, setItems] = useState<CartItem[]>([]);
 
   const addItem = (product: Product) => {
-    const user = JSON.parse(localStorage.getItem('bikuumba_user') || 'null');
+    let user: any = null;
+    try {
+      const saved = localStorage.getItem('bikuumba_user');
+      user = saved ? JSON.parse(saved) : null;
+    } catch (error) {
+      console.error('Failed to parse user from localStorage:', error);
+      localStorage.removeItem('bikuumba_user');
+      toast.error('Session expired. Please sign in again.');
+      return;
+    }
     if (!user) {
       toast.error('Please sign in to add items to cart');
       return;
@@ -919,10 +979,10 @@ const handleSearch = useCallback(async () => {
               <Button variant="ghost" size="icon" className="md:hidden" onClick={() => { setSelectedChat(null); onChatClose?.(); }}>
                 <ChevronRight className="h-5 w-5 rotate-180" />
               </Button>
-              <Avatar className="h-10 w-10">
-                <AvatarImage src={selectedChat.photoURL || undefined} />
-                <AvatarFallback>{selectedChat.displayName[0]}</AvatarFallback>
-              </Avatar>
+               <Avatar className="h-10 w-10">
+                 <AvatarImage src={selectedChat.photoURL || undefined} />
+                 <AvatarFallback>{selectedChat.displayName?.[0] || '?'}</AvatarFallback>
+               </Avatar>
               <div>
                 <p className="font-medium">{selectedChat.displayName}</p>
                 <p className="text-xs text-muted-foreground">Tap for info</p>
@@ -1192,10 +1252,10 @@ const handleChat = async () => {
           <div className="relative px-8 pb-8 space-y-6">
             <div className="flex justify-between items-start -mt-16">
               <div className="relative">
-                <Avatar className="h-24 w-24 border-4 border-paper shadow-xl">
-                  <AvatarImage src={seller.photoURL} />
-                  <AvatarFallback className="text-2xl">{seller.displayName[0]}</AvatarFallback>
-                </Avatar>
+                 <Avatar className="h-24 w-24 border-4 border-paper shadow-xl">
+                   <AvatarImage src={seller.photoURL} />
+                   <AvatarFallback className="text-2xl">{seller.displayName?.[0] || '?'}</AvatarFallback>
+                 </Avatar>
                 {seller.isOnline && (
                   <div className="absolute bottom-0 right-0 h-4 w-4 bg-green-500 rounded-full border-2 border-paper" />
                 )}
@@ -1522,7 +1582,7 @@ const AdminDashboard = () => {
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
                             <AvatarImage src={u.photoURL} />
-                            <AvatarFallback>{u.displayName[0]}</AvatarFallback>
+                            <AvatarFallback>{u.displayName?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div>
                             <p className="font-medium">{u.displayName}</p>
@@ -2071,7 +2131,7 @@ const AdminDashboard = () => {
                 <div className="flex items-center gap-4">
                   <Avatar className="h-16 w-16">
                     <AvatarImage src={selectedUser.photoURL} />
-                    <AvatarFallback>{selectedUser.displayName[0]}</AvatarFallback>
+                    <AvatarFallback>{selectedUser.displayName?.[0] || '?'}</AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="text-xl font-medium">{selectedUser.displayName}</p>
@@ -2482,14 +2542,17 @@ const AdminDashboard = () => {
                 </div>
               </div>
               
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Items</p>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {selectedOrderForAdmin.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-sm p-2 bg-secondary/30 rounded">
-                      <span>{item.name} x{item.quantity}</span>
-                      <span>{formatPrice(item.price * item.quantity)}</span>
-                    </div>
+               <div>
+                 <p className='text-xs uppercase tracking-widest text-muted-foreground mb-2'>Items</p>
+                 <div className='space-y-2 max-h-40 overflow-y-auto'>
+                   {(selectedOrderForAdmin.items || []).map((item, idx) => (
+                     <div key={idx} className='flex justify-between text-sm p-2 bg-secondary/30 rounded'>
+                       <span>{item.name} x{item.quantity}</span>
+                       <span>{formatPrice(item.price * item.quantity)}</span>
+                     </div>
+                   ))}
+                 </div>
+               </div>
                   ))}
                 </div>
               </div>
@@ -2787,7 +2850,9 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
         try {
           const v = await api.get(`/business/verify/${user.uid}`);
           if (v) setVerificationStatus(v.status);
-        } catch (e) {}
+        } catch (error) {
+          console.error('Failed to fetch verification status:', error);
+        }
       };
       fetchVerification();
 
@@ -2901,10 +2966,10 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
     <div className="container mx-auto px-4 py-12 max-w-4xl space-y-12 pb-24">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div className="flex items-center gap-6">
-          <Avatar className="h-24 w-24 border-4 border-paper shadow-xl">
-            <AvatarImage src={user.photoURL} />
-            <AvatarFallback className="text-3xl">{user.displayName[0]}</AvatarFallback>
-          </Avatar>
+           <Avatar className="h-24 w-24 border-4 border-paper shadow-xl">
+             <AvatarImage src={user.photoURL} />
+             <AvatarFallback className="text-3xl">{user.displayName?.[0] || '?'}</AvatarFallback>
+           </Avatar>
           <div>
             <h2 className="text-4xl serif">{user.displayName}</h2>
             <p className="text-muted-foreground">{user.email}</p>
@@ -3009,10 +3074,10 @@ const ProfileView = ({ onNavigate, onSelectSeller }: { onNavigate: (view: string
                 onClick={() => onSelectSeller(business.uid)}
               >
                 <CardContent className="p-4 flex items-center gap-4">
-                  <Avatar className="h-12 w-12">
-                    <AvatarImage src={business.photoURL} />
-                    <AvatarFallback>{business.displayName[0]}</AvatarFallback>
-                  </Avatar>
+                   <Avatar className="h-12 w-12">
+                     <AvatarImage src={business.photoURL} />
+                     <AvatarFallback>{business.displayName?.[0] || '?'}</AvatarFallback>
+                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{business.businessName || business.displayName}</p>
                     <p className="text-xs text-muted-foreground truncate">{business.businessDescription || 'Boutique'}</p>
@@ -3331,7 +3396,7 @@ const Navbar = ({ onNavigate, onOpenMenu, onSearch, searchQuery }: { onNavigate:
               <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="rounded-full overflow-hidden" />}>
                 <Avatar className="h-8 w-8">
                   <AvatarImage src={user.photoURL} />
-                  <AvatarFallback>{user.displayName[0]}</AvatarFallback>
+                  <AvatarFallback>{user.displayName?.[0] || '?'}</AvatarFallback>
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
@@ -4927,20 +4992,20 @@ const OrdersView = ({ user }: { user: User }) => {
                 </div>
               </div>
 
-              <div>
-                <p className='text-xs uppercase tracking-widest text-muted-foreground mb-3'>Items</p>
-                <div className='space-y-3'>
-                  {selectedOrder.items.map((item, idx) => (
-                    <div key={idx} className='flex items-center gap-3 p-3 bg-secondary/30 rounded-lg'>
-                      <img src={item.image} alt={item.name} className='h-16 w-16 rounded-lg object-cover bg-secondary' />
-                      <div className='flex-1'>
-                        <p className='font-medium'>{item.name}</p>
-                        <p className='text-sm text-muted-foreground'>Qty: {item.quantity} × {formatPrice(item.price)}</p>
-                      </div>
-                      <p className='font-medium'>{formatPrice(item.price * item.quantity)}</p>
-                    </div>
-                  ))}
-                </div>
+               <div>
+                 <p className='text-xs uppercase tracking-widest text-muted-foreground mb-3'>Items</p>
+                 <div className='space-y-3'>
+                   {(selectedOrder.items || []).map((item, idx) => (
+                     <div key={idx} className='flex items-center gap-3 p-3 bg-secondary/30 rounded-lg'>
+                       <img src={item.image} alt={item.name} className='h-16 w-16 rounded-lg object-cover bg-secondary' />
+                       <div className='flex-1'>
+                         <p className='font-medium'>{item.name}</p>
+                         <p className='text-sm text-muted-foreground'>Qty: {item.quantity} × {formatPrice(item.price)}</p>
+                       </div>
+                       <p className='font-medium'>{formatPrice(item.price * item.quantity)}</p>
+                     </div>
+                   ))}
+                 </div>
                 <div className='mt-4 pt-4 border-t flex justify-between items-center'>
                   <p className='font-medium'>Total</p>
                   <p className='text-xl font-medium'>{formatPrice(selectedOrder.total)}</p>
@@ -5715,7 +5780,7 @@ const FollowingView = ({ onProductClick, onBusinessClick, user }: { onProductCli
                 <CardContent className="p-4 flex flex-col items-center gap-2">
                   <Avatar className="h-16 w-16">
                     <AvatarImage src={u.photoURL} />
-                    <AvatarFallback>{u.displayName[0]}</AvatarFallback>
+                    <AvatarFallback>{u.displayName?.[0] || '?'}</AvatarFallback>
                   </Avatar>
                   <p className="text-sm font-medium text-center truncate w-full">{u.businessName || u.displayName}</p>
                 </CardContent>
@@ -5824,10 +5889,12 @@ const AppContent = () => {
       setUnreadMessagesCount(0);
       return;
     }
-    try {
-      const msgs = await api.get(`/messages/${user.uid}?currentUserId=${user.uid}`);
-      setUnreadMessagesCount(msgs.filter((m: Message) => !m.read && m.receiverId === user.uid).length);
-    } catch (e) {}
+     try {
+       const msgs = await api.get(`/messages/${user.uid}?currentUserId=${user.uid}`);
+       setUnreadMessagesCount(msgs.filter((m: Message) => !m.read && m.receiverId === user.uid).length);
+     } catch (error) {
+       console.error('Failed to fetch unread messages:', error);
+     }
   }, [user]);
 
   const fetchUnreadOrdersCount = useCallback(async () => {
@@ -6350,6 +6417,8 @@ const toggleCompare = (product: Product) => {
     </div>
   );
 };
+
+export { ErrorBoundary };
 
 export default function App() {
   return (

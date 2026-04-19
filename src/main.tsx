@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import App from './App.tsx';
 import './index.css';
+import { ErrorBoundary } from './App';
 
 // Register service worker for push notifications
 if ('serviceWorker' in navigator) {
@@ -33,7 +34,9 @@ if ('serviceWorker' in navigator) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <GoogleOAuthProvider clientId="527332905735-09ghcgs94fd2g3l39dbcabbq101spclp.apps.googleusercontent.com">
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </GoogleOAuthProvider>
   </StrictMode>,
 );
