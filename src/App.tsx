@@ -3893,7 +3893,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   };
 
   const fetchData = async () => {
-    if (user.role === 'customer') return;
+    if (!user || user.role === 'customer') return;
     try {
       const [p, o, v] = await Promise.all([
         api.get('/products?includeUnapproved=true&all=true'),
@@ -3929,6 +3929,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       await api.post('/users', updatedUser);
       localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
       setUser(updatedUser as User);
+      await fetchData();
       toast.success("Business registered! Please verify your business to start posting products.");
       setIsRegistering(false);
       setShowVerifyModal(true);
