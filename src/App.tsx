@@ -1144,14 +1144,16 @@ const AdminDashboard = () => {
       </div>
 
       <Tabs defaultValue="users" className="space-y-6">
-        <TabsList className="bg-paper p-1 rounded-full border">
-          <TabsTrigger value="users" className="rounded-full px-8">Users</TabsTrigger>
-          <TabsTrigger value="products" className="rounded-full px-8">Products</TabsTrigger>
-          <TabsTrigger value="orders" className="rounded-full px-8">Orders</TabsTrigger>
-          <TabsTrigger value="business" className="rounded-full px-8">Users</TabsTrigger>
-          <TabsTrigger value="verify" className="rounded-full px-8">Verify</TabsTrigger>
-          <TabsTrigger value="announcements" className="rounded-full px-8">Announcements</TabsTrigger>
-        </TabsList>
+        <div className="w-full overflow-x-auto">
+          <TabsList className="bg-paper p-1 rounded-full border inline-flex w-max min-w-full">
+            <TabsTrigger value="users" className="rounded-full px-4 sm:px-8 whitespace-nowrap">Users</TabsTrigger>
+            <TabsTrigger value="products" className="rounded-full px-4 sm:px-8 whitespace-nowrap">Products</TabsTrigger>
+            <TabsTrigger value="orders" className="rounded-full px-4 sm:px-8 whitespace-nowrap">Orders</TabsTrigger>
+            <TabsTrigger value="business" className="rounded-full px-4 sm:px-8 whitespace-nowrap">Businesses</TabsTrigger>
+            <TabsTrigger value="verify" className="rounded-full px-4 sm:px-8 whitespace-nowrap">Verify</TabsTrigger>
+            <TabsTrigger value="announcements" className="rounded-full px-4 sm:px-8 whitespace-nowrap">Announcements</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="users" className="space-y-4">
           <Card className="border-none bg-paper shadow-sm">
@@ -1533,7 +1535,7 @@ const AdminDashboard = () => {
                         )}
                         {businessTab === 'pending' && (
                           <>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                               <div>
                                 <p className="text-muted-foreground">Registered Email</p>
                                 <p className="font-medium">{v.registeredEmail || 'Not provided'}</p>
@@ -1547,7 +1549,7 @@ const AdminDashboard = () => {
                                 <p className="font-medium">{v.ninNumber || 'Not provided'}</p>
                               </div>
                             </div>
-                            <div className="flex gap-4">
+                            <div className="flex flex-wrap gap-4">
                               {v.nationalIdFront && (
                                 <div>
                                   <p className="text-muted-foreground text-sm mb-2">National ID - Front</p>
@@ -1730,7 +1732,7 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Role</p>
                     <p className="font-medium capitalize">{selectedUser.role}</p>
@@ -1791,7 +1793,7 @@ const AdminDashboard = () => {
                   <div className="border-t pt-4 space-y-3">
                     <p className="text-sm font-medium">Admin Actions</p>
                     
-                    <div className="grid grid-cols-2 gap-2">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {selectedUser.status !== 'active' && (
                         <Button variant="outline" size="sm" onClick={async () => {
                           await api.post(`/users/${selectedUser.uid}/activate`, { adminUserId: currentUser?.uid });
@@ -1889,7 +1891,7 @@ const AdminDashboard = () => {
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Theme Color</Label>
                 <Select value={announcementForm.theme} onValueChange={(val) => setAnnouncementForm({...announcementForm, theme: val})}>
@@ -1918,124 +1920,8 @@ const AdminDashboard = () => {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Padding</Label>
-                <Input 
-                  value={announcementForm.padding}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, padding: e.target.value})}
-                  placeholder="8px 16px"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Border Radius</Label>
-                <Input 
-                  value={announcementForm.borderRadius}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, borderRadius: e.target.value})}
-                  placeholder="0px"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Duration (minutes)</Label>
-                <Input 
-                  type="number"
-                  value={announcementForm.duration}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, duration: Number(e.target.value)})}
-                />
-              </div>
-              <div className="flex items-center pt-6">
-                <input 
-                  type="checkbox"
-                  id="closable"
-                  checked={announcementForm.closable}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, closable: e.target.checked})}
-                  className="mr-2"
-                />
-                <Label htmlFor="closable" className="font-normal">Closable</Label>
-              </div>
-            </div>
             
-            <Separator className="my-4" />
-            <p className="text-sm font-medium mb-2">Button Options</p>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Button Text</Label>
-                <Input 
-                  placeholder="e.g., Shop Now"
-                  value={announcementForm.buttonText}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonText: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Button Link</Label>
-                <Input 
-                  placeholder="e.g., /shop or https://..."
-                  value={announcementForm.buttonLink}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonLink: e.target.value})}
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Button Color</Label>
-                <div className="flex gap-2">
-                  <Input 
-                    type="color"
-                    value={announcementForm.buttonColor}
-                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonColor: e.target.value})}
-                    className="w-12 h-10 p-1"
-                  />
-                  <Input 
-                    value={announcementForm.buttonColor}
-                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonColor: e.target.value})}
-                    placeholder="#ffffff"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Button Background</Label>
-                <div className="flex gap-2">
-                  <Input 
-                    type="color"
-                    value={announcementForm.buttonBgColor}
-                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonBgColor: e.target.value})}
-                    className="w-12 h-10 p-1"
-                  />
-                  <Input 
-                    value={announcementForm.buttonBgColor}
-                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonBgColor: e.target.value})}
-                    placeholder="#000000"
-                    className="flex-1"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Button Padding</Label>
-                <Input 
-                  value={announcementForm.buttonPadding}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonPadding: e.target.value})}
-                  placeholder="8px 16px"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Button Radius</Label>
-                <Input 
-                  value={announcementForm.buttonRadius}
-                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonRadius: e.target.value})}
-                  placeholder="4px"
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Text Font Family</Label>
                 <Input 
@@ -2112,7 +1998,7 @@ const AdminDashboard = () => {
           </DialogHeader>
           {selectedOrderForAdmin && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Status</p>
                   <Badge variant={selectedOrderForAdmin.status === 'delivered' ? 'default' : selectedOrderForAdmin.status === 'cancelled' ? 'destructive' : 'secondary'} className="capitalize">
@@ -2207,28 +2093,28 @@ const AdminDashboard = () => {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Business Name</p>
-                  <p className="font-medium">{selectedBusiness.user?.businessName || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Location</p>
-                  <p className="font-medium">{selectedBusiness.user?.location || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">MTN Phone</p>
-                  <p className="font-medium">{selectedBusiness.user?.phoneMTN || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Airtel Phone</p>
-                  <p className="font-medium">{selectedBusiness.user?.phoneAirtel || 'N/A'}</p>
-                </div>
-              </div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div>
+                   <p className="text-xs text-muted-foreground">Business Name</p>
+                   <p className="font-medium">{selectedBusiness.user?.businessName || 'N/A'}</p>
+                 </div>
+                 <div>
+                   <p className="text-xs text-muted-foreground">Location</p>
+                   <p className="font-medium">{selectedBusiness.user?.location || 'N/A'}</p>
+                 </div>
+                 <div>
+                   <p className="text-xs text-muted-foreground">MTN Phone</p>
+                   <p className="font-medium">{selectedBusiness.user?.phoneMTN || 'N/A'}</p>
+                 </div>
+                 <div>
+                   <p className="text-xs text-muted-foreground">Airtel Phone</p>
+                   <p className="font-medium">{selectedBusiness.user?.phoneAirtel || 'N/A'}</p>
+                 </div>
+               </div>
               
-              <div className="border-t pt-4">
-                <p className="text-sm font-medium mb-2">Verification Information</p>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="border-t pt-4">
+                  <p className="text-sm font-medium mb-2">Verification Information</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-muted-foreground">Registered Email</p>
                     <p className="font-medium">{selectedBusiness.verification?.registeredEmail || 'Not provided'}</p>
@@ -2251,7 +2137,7 @@ const AdminDashboard = () => {
               {selectedBusiness.verification?.nationalIdFront && (
                 <div className="border-t pt-4">
                   <p className="text-sm font-medium mb-2">Submitted Documents</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {selectedBusiness.verification?.nationalIdFront && (
                       <div>
                         <p className="text-xs text-muted-foreground">National ID Front</p>
@@ -3854,7 +3740,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               <DialogTitle className="serif text-2xl">Add Boutique Product</DialogTitle>
               <DialogDescription>Enter the details for your new curated item.</DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
                 <Label>Product Name</Label>
                 <Input value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} />
@@ -3901,7 +3787,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
               </div>
               <div className="col-span-2 space-y-4">
                 <Label>Product Images</Label>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
                   {newProduct.images?.map((img, i) => (
                     <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
                       <img src={img} alt="" className="h-full w-full object-cover" />
@@ -3991,7 +3877,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Customer Details:</p>
-                      <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
                         <p>Name: {order.receiverName || 'N/A'}</p>
                         <p>MTN: {order.phoneMTN || 'N/A'}</p>
                         <p>Airtel: {order.phoneAirtel || 'N/A'}</p>
@@ -5718,13 +5604,13 @@ const toggleCompare = (product: Product) => {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Padding</Label>
                 <Input 
-                  placeholder="e.g. 8px 16px"
-                  value={announcementData.padding}
-                  onChange={(e) => setAnnouncementData({...announcementData, padding: e.target.value})}
+                  value={announcementForm.padding}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, padding: e.target.value})}
+                  placeholder="8px 16px"
                 />
               </div>
               <div className="space-y-2">
