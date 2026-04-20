@@ -120,8 +120,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
             <Button onClick={() => window.location.reload()}>Refresh Page</Button>
             </div>
         </div>
-      )
-          <div className="space-y-2">
+      );
+    }
+
+    return (
+      <div className="space-y-2">
             <Label>Email</Label>
             <Input 
               type="email" 
