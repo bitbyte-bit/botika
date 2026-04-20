@@ -118,11 +118,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
             <h1 className="text-2xl font-bold">Something went wrong</h1>
             <p className="text-muted-foreground">Please refresh the page to continue.</p>
             <Button onClick={() => window.location.reload()}>Refresh Page</Button>
-          </div>
-                      </div>
-                     ))}`
-                    </div>
-          )}
+            </div>
+        </div>
+      )
           <div className="space-y-2">
             <Label>Email</Label>
             <Input 
@@ -1508,7 +1506,7 @@ const AdminDashboard = () => {
                                     </Badge>
                                     {lastSeen && (
                                       <span className="text-xs text-muted-foreground">Last seen: {lastSeen.toLocaleDateString()}</span>
-                                    )}
+)
                                   </>
                                 );
                               })()}
