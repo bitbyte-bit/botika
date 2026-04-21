@@ -486,7 +486,7 @@ async function startServer() {
       if (!adminUser) {
         const stmt = db.prepare(`
           INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run('admin-' + Date.now(), 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
         adminUser = db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get('bikuumba@gmail.com');

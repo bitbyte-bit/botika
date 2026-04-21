@@ -354,7 +354,10 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
         email: signupEmail,
         password: signupPassword
       });
-      if (res.needsVerification) {
+      if (res.emailNotFound) {
+        toast.error('No account found. Please create one.');
+        setAuthMode('signup');
+      } else if (res.needsVerification) {
         setAuthMode('verify');
         toast.error('Please verify your email first');
       } else if (res.error) {
