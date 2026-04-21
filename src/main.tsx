@@ -33,7 +33,7 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GoogleOAuthProvider clientId="527332905735-09ghcgs94fd2g3l39dbcabbq101spclp.apps.googleusercontent.com">
+    <GoogleOAuthProvider clientId="404097461636-aonin006mvkteduki0q2og8via6ia5e8.apps.googleusercontent.com">
       <ErrorBoundary>
         <App />
       </ErrorBoundary>

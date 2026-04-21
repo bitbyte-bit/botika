@@ -7,10 +7,31 @@ import Database from "better-sqlite3";
 import cors from "cors";
 import webpush from "web-push";
 import bcrypt from "bcryptjs";
+import nodemailer from "nodemailer";
 
 const FCM_PUBLIC_KEY = "BAyyXxvXJK-U-jjy3qUpmcXrO4_QJ0gw5ODKBVbuiOrk068ix122km1FlNtxB5UPZb8062lVYYfvyA2U3Yio3Q0";
-const GOOGLE_CLIENT_ID = "";
-const GOOGLE_CLIENT_SECRET = "";
+const GOOGLE_CLIENT_ID = "404097461636-aonin006mvkteduki0q2og8via6ia5e8.apps.googleusercontent.com";
+const GOOGLE_CLIENT_SECRET = "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";
+
+const SMTP_CONFIG = {
+  host: "smtp.mailersend.net",
+  port: 587,
+  secure: false,
+  auth: {
+    user: "MS_PmbURr@zionnent.com",
+    pass: "mssp.9QK03aS.351ndgweznxgzqx8.SQotmD5"
+  }
+};
+
+const emailTransporter = nodemailer.createTransport({
+  host: SMTP_CONFIG.host,
+  port: SMTP_CONFIG.port,
+  secure: SMTP_CONFIG.secure,
+  auth: {
+    user: SMTP_CONFIG.auth.user,
+    pass: SMTP_CONFIG.auth.pass
+  }
+});
 
 webpush.setVapidDetails(
   "https://botika-4y78.onrender.com",
@@ -252,6 +273,8 @@ addColumnIfNotExists('announcements', 'fontFamily', 'TEXT');
 addColumnIfNotExists('announcements', 'fontWeight', 'TEXT');
 addColumnIfNotExists('orders', 'deliveryConfirmation', 'TEXT');
 addColumnIfNotExists('orders', 'subOrders', 'TEXT');
+addColumnIfNotExists('users', 'verificationCode', 'TEXT');
+addColumnIfNotExists('users', 'isVerified', 'INTEGER DEFAULT 0');
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_products_seller ON products(sellerId);
@@ -308,26 +331,107 @@ async function startServer() {
     try {
       const uid = Math.random().toString(36).substring(2, 15);
       const hashedPassword = await bcrypt.hash(password, 10);
-      const newUser = {
-        uid,
-        email,
-        displayName,
-        photoURL: "",
-        role: 'customer',
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        password: hashedPassword
-      };
-      const stmt = db.prepare(`
-        INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(newUser.uid, newUser.email, newUser.displayName, newUser.photoURL, newUser.role, newUser.status, newUser.createdAt, newUser.password, null, null, null, null, null);
-      const { password: _, ...userWithoutPassword } = newUser;
-      res.json(userWithoutPassword);
+      const verificationCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      
+      db.prepare(`
+        INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password, verificationCode, isVerified, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(uid, email, displayName, '', 'customer', 'pending', new Date().toISOString(), hashedPassword, verificationCode, 0, null, null, null, null, null);
+      
+      const verificationUrl = `${req.protocol}://${req.get('host')}/verify?code=${verificationCode}&email=${encodeURIComponent(email)}`;
+      
+      await emailTransporter.sendMail({
+        from: '"Bikuumba" <noreply@zionnent.com>',
+        to: email,
+        subject: 'Verify your Bikuumba account',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">Welcome to Bikuumba!</h2>
+            <p>Thank you for creating an account. Please verify your email address to get started.</p>
+            <p>Your verification code is: <strong style="font-size: 24px; letter-spacing: 2px;">${verificationCode}</strong></p>
+            <p>Or click the button below:</p>
+            <a href="${verificationUrl}" style="display: inline-block; background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 4px; margin: 16px 0;">Verify Email</a>
+            <p style="color: #666; font-size: 12px; margin-top: 24px;">If you didn't create this account, please ignore this email.</p>
+          </div>
+        `
+      });
+      
+      res.json({ message: 'Verification email sent', email });
     } catch (err) {
       console.error('Signup error:', err);
       res.status(500).json({ error: err.message || 'Server error during signup' });
+    }
+  });
+
+  app.post("/api/auth/verify", async (req, res) => {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      return res.status(400).json({ error: 'Email and verification code are required' });
+    }
+    try {
+      const user = db.prepare('SELECT * FROM users WHERE email = ? AND verificationCode = ?').get(email, code);
+      if (!user) {
+        return res.status(400).json({ error: 'Invalid verification code' });
+      }
+      db.prepare('UPDATE users SET verificationCode = NULL, isVerified = 1, status = ? WHERE email = ?').run('active', email);
+      const { password: _, verificationCode: __, ...userWithoutPassword } = user;
+      res.json({ ...userWithoutPassword, status: 'active', isVerified: 1 });
+    } catch (err) {
+      console.error('Verification error:', err);
+      res.status(500).json({ error: 'Verification failed' });
+    }
+  });
+
+  app.post("/api/auth/resend-code", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    try {
+      const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      if (user.isVerified === 1) {
+        return res.status(400).json({ error: 'Email already verified' });
+      }
+      const newCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      db.prepare('UPDATE users SET verificationCode = ? WHERE email = ?').run(newCode, email);
+      
+      await emailTransporter.sendMail({
+        from: '"Bikuumba" <noreply@zionnent.com>',
+        to: email,
+        subject: 'Your new verification code',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">New Verification Code</h2>
+            <p>Your new verification code is: <strong style="font-size: 24px; letter-spacing: 2px;">${newCode}</strong></p>
+            <p>This code expires in 24 hours.</p>
+          </div>
+        `
+      });
+      
+      res.json({ message: 'Verification code resent' });
+    } catch (err) {
+      console.error('Resend code error:', err);
+      res.status(500).json({ error: 'Failed to resend code' });
+    }
+  });
+
+  app.get("/verify", (req, res) => {
+    const { code, email } = req.query;
+    if (!code || !email) {
+      return res.redirect('/?verified=false');
+    }
+    try {
+      const user = db.prepare('SELECT * FROM users WHERE email = ? AND verificationCode = ?').get(email, code);
+      if (!user) {
+        return res.redirect('/?verified=invalid');
+      }
+      db.prepare('UPDATE users SET verificationCode = NULL, isVerified = 1, status = ? WHERE email = ?').run('active', email);
+      res.redirect('/?verified=success');
+    } catch (err) {
+      res.redirect('/?verified=error');
     }
   });
 
@@ -372,6 +476,9 @@ async function startServer() {
       if (user.status === 'suspended') {
         return res.status(403).json({ error: "Your account is currently suspended" });
       }
+      if (user.isVerified !== 1) {
+        return res.status(403).json({ error: "Please verify your email first", needsVerification: true });
+      }
       let validPassword = false;
       if (user.password && user.password.startsWith('$2')) {
         validPassword = await bcrypt.compare(password, user.password);
@@ -401,7 +508,7 @@ async function startServer() {
     }
     const stmt = db.prepare(`
       INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, status, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     try {
       stmt.run(uid, email, displayName || null, photoURL || null, role || 'customer', status || 'active', businessName || null, businessDescription || null, password || null, createdAt || new Date().toISOString(), location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);

@@ -110,6 +110,7 @@ interface AuthContextType {
   login: () => void;
   logout: () => void;
   setUser: (user: User | null) => void;
+  closeLoginModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -194,6 +195,15 @@ const shareProduct = (product: Product) => {
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
+  const login = useCallback(() => {
+    setShowLoginModal(true);
+  }, []);
+
+  const closeLoginModal = useCallback(() => {
+    setShowLoginModal(false);
+  }, []);
 
   useEffect(() => {
     // Check for existing session
@@ -212,10 +222,34 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = useCallback(() => {
-    // This will trigger Google Login
-    // The actual login is handled by the Google Login button in the UI
-  }, []);
+  const handleGoogleSuccess = useCallback(async (credentialResponse: any) => {
+    try {
+      const decoded = jwtDecode<{ sub: string; email: string; name: string; picture: string }>(credentialResponse.credential);
+      
+      // Check if user exists in backend, if not create them
+      let user = await api.get(`/users/${decoded.sub}`);
+      if (!user) {
+        await api.post('/users', {
+          uid: decoded.sub,
+          email: decoded.email,
+          displayName: decoded.name,
+          photoURL: decoded.picture,
+          role: 'customer',
+          status: 'active',
+          createdAt: new Date().toISOString()
+        });
+        user = { uid: decoded.sub, email: decoded.email, displayName: decoded.name, photoURL: decoded.picture, role: 'customer', status: 'active' };
+      }
+      
+      setUser(user);
+      localStorage.setItem('user', JSON.stringify(user));
+      closeLoginModal();
+      toast.success('Welcome!');
+    } catch (error) {
+      console.error('Google login error:', error);
+      toast.error('Login failed');
+    }
+  }, [setUser, closeLoginModal]);
 
   const logout = useCallback(() => {
     setUser(null);
@@ -223,9 +257,205 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     googleLogout();
   }, []);
 
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'verify'>('signin');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupName, setSignupName] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const handleSignup = async () => {
+    if (!signupEmail || !signupPassword || !signupName) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      const res = await api.post('/auth/signup', {
+        email: signupEmail,
+        password: signupPassword,
+        displayName: signupName
+      });
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        setAuthMode('verify');
+        toast.success('Verification code sent! Check your email.');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Signup failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!verificationCode) {
+      toast.error('Please enter verification code');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      const res = await api.post('/auth/verify', {
+        email: signupEmail,
+        code: verificationCode
+      });
+      if (res.error) {
+        toast.error(res.error);
+      } else {
+        setUser(res);
+        localStorage.setItem('user', JSON.stringify(res));
+        closeLoginModal();
+        toast.success('Account verified!');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Verification failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!signupEmail || !signupPassword) {
+      toast.error('Please enter email and password');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      const res = await api.post('/auth/login', {
+        email: signupEmail,
+        password: signupPassword
+      });
+      if (res.needsVerification) {
+        setAuthMode('verify');
+        toast.error('Please verify your email first');
+      } else if (res.error) {
+        toast.error(res.error);
+      } else {
+        setUser(res);
+        localStorage.setItem('user', JSON.stringify(res));
+        closeLoginModal();
+        toast.success('Welcome back!');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Login failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const renderAuthForm = () => {
+    if (authMode === 'verify') {
+      return (
+        <div className="grid gap-4 py-4">
+          <div className="space-y-2">
+            <Label>Verification Code</Label>
+            <Input
+              placeholder="Enter 6-digit code"
+              value={verificationCode}
+              onChange={(e) => setVerificationCode(e.target.value.toUpperCase())}
+              maxLength={8}
+            />
+          </div>
+          <Button onClick={handleVerify} disabled={authLoading} className="w-full">
+            {authLoading ? 'Verifying...' : 'Verify Email'}
+          </Button>
+          <Button variant="link" size="sm" onClick={() => api.post('/auth/resend-code', { email: signupEmail })}>
+            Resend code
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setAuthMode('signin')}>
+            Back to sign in
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-4 py-4">
+        {authMode === 'signup' && (
+          <div className="space-y-2">
+            <Label>Display Name</Label>
+            <Input
+              placeholder="Your name"
+              value={signupName}
+              onChange={(e) => setSignupName(e.target.value)}
+            />
+          </div>
+        )}
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input
+            type="email"
+            placeholder="you@example.com"
+            value={signupEmail}
+            onChange={(e) => setSignupEmail(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Password</Label>
+          <Input
+            type="password"
+            placeholder="••••••••"
+            value={signupPassword}
+            onChange={(e) => setSignupPassword(e.target.value)}
+          />
+        </div>
+        <Button onClick={authMode === 'signup' ? handleSignup : handleLogin} disabled={authLoading} className="w-full">
+          {authLoading ? 'Loading...' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
+        </Button>
+        
+        <div className="relative">
+          <Separator />
+          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs text-muted-foreground">
+            OR
+          </span>
+        </div>
+
+<GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => toast.error('Login failed. Please try again.')}
+                  useOneTap
+                />
+
+        <p className="text-center text-sm text-muted-foreground">
+          {authMode === 'signin' ? (
+            <>
+              Don't have an account?{' '}
+              <button className="text-accent underline" onClick={() => setAuthMode('signup')}>
+                Create one
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{' '}
+              <button className="text-accent underline" onClick={() => setAuthMode('signin')}>
+                Sign in
+              </button>
+            </>
+          )}
+        </p>
+      </div>
+    );
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, setUser }}>
+    <AuthContext.Provider value={{ user, login, logout, setUser, closeLoginModal }}>
       {children}
+      {showLoginModal && (
+        <Dialog open={showLoginModal} onOpenChange={setShowLoginModal}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="serif text-2xl">
+                {authMode === 'verify' ? 'Verify Email' : authMode === 'signup' ? 'Create Account' : 'Welcome Back'}
+              </DialogTitle>
+              <DialogDescription>
+                {authMode === 'verify' ? 'Enter the code sent to your email.' : authMode === 'signup' ? 'Create an account to get started.' : 'Sign in to access your account and manage your orders.'}
+              </DialogDescription>
+            </DialogHeader>
+            {renderAuthForm()}
+          </DialogContent>
+        </Dialog>
+      )}
     </AuthContext.Provider>
   );
 }
@@ -329,26 +559,6 @@ function AppContent() {
       setLoading(false);
     }
   };
-
-  const handleGoogleSuccess = useCallback(async (credentialResponse: any) => {
-    try {
-      const decoded = jwtDecode<{ sub: string; email: string; name: string; picture: string }>(credentialResponse.credential);
-      const mockUser: User = {
-        uid: decoded.sub || '',
-        email: decoded.email || '',
-        displayName: decoded.name || '',
-        photoURL: decoded.picture || '',
-        role: 'customer',
-        createdAt: new Date().toISOString()
-      };
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-      toast.success('Welcome!');
-    } catch (error) {
-      console.error('Google login error:', error);
-      toast.error('Login failed');
-    }
-  }, [setUser]);
 
   // Render based on current view
   const renderView = () => {
