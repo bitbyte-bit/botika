@@ -90,13 +90,377 @@ import { api } from './services/api';
 import { requestNotificationPermission, subscribeToNewItems, sendPushNotification, onForegroundMessage, sendOrderNotification, sendNewOrderToSeller } from './services/push';
 import { generateEncryptionKey, encryptMessage, decryptMessage } from './services/encryption';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from '@/components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
+
+// Auth Context
+interface AuthContextType {
+  user: User | null;
+  login: () => void;
+  logout: () => void;
+  setUser: (user: User | null) => void;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+}
+
+// Cart Context
+interface CartContextType {
+  items: CartItem[];
+  total: number;
+  itemCount: number;
+  addItem: (product: Product) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
+  removeItem: (productId: string) => void;
+  clearCart: () => void;
+}
+
+const CartContext = createContext<CartContextType | null>(null);
+
+export function useCart() {
+  const context = useContext(CartContext);
+  if (!context) {
+    throw new Error('useCart must be used within CartProvider');
+  }
+  return context;
+}
+
+// Currency Context
+interface CurrencyContextType {
+  formatPrice: (amount: number) => string;
+}
+
+const CurrencyContext = createContext<CurrencyContextType | null>(null);
+
+export function useCurrency() {
+  const context = useContext(CurrencyContext);
+  if (!context) {
+    throw new Error('useCurrency must be used within CurrencyProvider');
+  }
+  return context;
+}
+
+// Share profile function
+const shareProfile = (user: User) => {
+  const shareData = {
+    title: user.businessName || user.displayName,
+    text: `Check out ${user.businessName || user.displayName}'s boutique on Bikuumba!`,
+    url: `${window.location.origin}/profile/${user.uid}`
+  };
+  
+  if (navigator.share) {
+    navigator.share(shareData);
+  } else {
+    navigator.clipboard.writeText(shareData.url);
+    toast.success('Link copied to clipboard!');
+  }
+};
+
+// Share product function
+const shareProduct = (product: Product) => {
+  const shareData = {
+    title: product.name,
+    text: `Check out ${product.name} on Bikuumba!`,
+    url: `${window.location.origin}/product/${product.id}`
+  };
+  
+  if (navigator.share) {
+    navigator.share(shareData);
+  } else {
+    navigator.clipboard.writeText(shareData.url);
+    toast.success('Link copied to clipboard!');
+  }
+};
+
+// Auth Provider
+function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check for existing session
+    const checkAuth = async () => {
+      try {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
+        }
+      } catch (e) {
+        console.error('Auth check failed', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  const login = useCallback(() => {
+    // This will trigger Google Login
+    // The actual login is handled by the Google Login button in the UI
+  }, []);
+
+  const logout = useCallback(() => {
+    setUser(null);
+    localStorage.removeItem('user');
+    googleLogout();
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, setUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+// Cart Provider
+function CartProvider({ children }: { children: React.ReactNode }) {
+  const [items, setItems] = useState<CartItem[]>([]);
+
+  const addItem = useCallback((product: Product) => {
+    setItems(prev => {
+      const existing = prev.find(item => item.productId === product.id);
+      if (existing) {
+        return prev.map(item => 
+          item.productId === product.id 
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        );
+      }
+      return [...prev, {
+        id: crypto.randomUUID(),
+        productId: product.id,
+        name: product.name,
+        price: product.price,
+        quantity: 1,
+        image: product.images[0],
+        sellerId: product.sellerId
+      }];
+    });
+  }, []);
+
+  const updateQuantity = useCallback((productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setItems(prev => prev.filter(item => item.productId !== productId));
+    } else {
+      setItems(prev => prev.map(item => 
+        item.productId === productId ? { ...item, quantity } : item
+      ));
+    }
+  }, []);
+
+  const removeItem = useCallback((productId: string) => {
+    setItems(prev => prev.filter(item => item.productId !== productId));
+  }, []);
+
+  const clearCart = useCallback(() => {
+    setItems([]);
+  }, []);
+
+  const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+
+  return (
+    <CartContext.Provider value={{ items, total, itemCount, addItem, updateQuantity, removeItem, clearCart }}>
+      {children}
+    </CartContext.Provider>
+  );
+}
+
+// Currency Provider
+function CurrencyProvider({ children }: { children: React.ReactNode }) {
+  const formatPrice = useCallback((amount: number) => {
+    return new Intl.NumberFormat('en-UG', {
+      style: 'currency',
+      currency: 'UGX',
+      minimumFractionDigits: 0
+    }).format(amount);
+  }, []);
+
+  return (
+    <CurrencyContext.Provider value={{ formatPrice }}>
+      {children}
+    </CurrencyContext.Provider>
+  );
+}
+
+// AppContent - Main app content component
+function AppContent() {
+  const [currentView, setCurrentView] = useState('home');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, login, logout, setUser } = useAuth();
+  const { items: cartItems, total: cartTotal, addItem } = useCart();
+  const { formatPrice } = useCurrency();
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [orderUnreadCount, setOrderUnreadCount] = useState(0);
+
+  // Placeholder functions - these would need real implementations
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setLoading(true);
+    try {
+      // Mock login - in real app this would call the API
+      toast.success(isSignUp ? 'Account created!' : 'Signed in!');
+    } catch (error) {
+      toast.error('Authentication failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = useCallback(async (credentialResponse: any) => {
+    try {
+      const decoded = jwtDecode<{ sub: string; email: string; name: string; picture: string }>(credentialResponse.credential);
+      const mockUser: User = {
+        uid: decoded.sub || '',
+        email: decoded.email || '',
+        displayName: decoded.name || '',
+        photoURL: decoded.picture || '',
+        role: 'customer',
+        createdAt: new Date().toISOString()
+      };
+      setUser(mockUser);
+      localStorage.setItem('user', JSON.stringify(mockUser));
+      toast.success('Welcome!');
+    } catch (error) {
+      console.error('Google login error:', error);
+      toast.error('Login failed');
+    }
+  }, [setUser]);
+
+  // Render based on current view
+  const renderView = () => {
+    switch (currentView) {
+      case 'home':
+        return (
+          <div className="container mx-auto px-4 py-8">
+            <h1 className="text-4xl serif mb-8">Welcome to Bikuumba</h1>
+            <p className="text-muted-foreground">Your marketplace for curated fashion and lifestyle products.</p>
+          </div>
+        );
+      case 'inbox':
+        return <InboxView onChatOpen={() => {}} onChatClose={() => {}} />;
+      case 'inventory':
+        return user ? (
+          <div className="container mx-auto px-4 py-8">
+            <h1 className="text-4xl serif mb-4">Business Dashboard</h1>
+            <p className="text-muted-foreground">Manage your products and orders</p>
+          </div>
+        ) : (
+          <div className="container mx-auto px-4 py-20 text-center space-y-4">
+            <p className="text-muted-foreground">Please sign in to view your business dashboard.</p>
+            <Button onClick={login}>Sign In</Button>
+          </div>
+        );
+      case 'profile':
+        return user ? (
+          <div className="container mx-auto px-4 py-8">
+            <h1 className="text-4xl serif mb-4">Profile</h1>
+            <p>Welcome, {user.displayName}</p>
+          </div>
+        ) : (
+          <div className="container mx-auto px-4 py-20 text-center space-y-4">
+            <p className="text-muted-foreground">Please sign in to view your profile.</p>
+            <Button onClick={login}>Sign In</Button>
+          </div>
+        );
+      default:
+        return (
+          <div className="container mx-auto px-4 py-8">
+            <h1 className="text-4xl serif">Page Not Found</h1>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b">
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMenuOpen(true)}>
+                <Menu className="h-5 w-5" />
+              </Button>
+              <h1 className="text-xl serif font-bold">Bikuumba</h1>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" onClick={() => setCurrentView('search')}>
+                <Search className="h-5 w-5" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setCurrentView('cart')}>
+                <ShoppingCart className="h-5 w-5" />
+                {cartItems.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                    {cartItems.length}
+                  </span>
+                )}
+              </Button>
+              {user ? (
+                <Button variant="ghost" size="icon" onClick={() => setCurrentView('profile')}>
+                  {user.photoURL ? (
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage src={user.photoURL} />
+                      <AvatarFallback>{user.displayName?.[0]}</AvatarFallback>
+                    </Avatar>
+                  ) : (
+                    <UserIcon className="h-5 w-5" />
+                  )}
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={login}>Sign In</Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8 pb-24 md:pb-8">
+        {renderView()}
+      </main>
+
+      {/* Bottom Navigation */}
+      <BottomNav 
+        currentView={currentView} 
+        onNavigate={setCurrentView} 
+        unreadCount={unreadCount}
+        orderUnreadCount={orderUnreadCount}
+      />
+    </div>
+  );
+}
 
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
 }
 
-class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
   constructor(props: { children: ReactNode }) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -110,7 +474,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
     console.error('Uncaught error:', error, errorInfo);
   }
 
-  render() {
+render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
@@ -118,94 +482,14 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
             <h1 className="text-2xl font-bold">Something went wrong</h1>
             <p className="text-muted-foreground">Please refresh the page to continue.</p>
             <Button onClick={() => window.location.reload()}>Refresh Page</Button>
-            </div>
+          </div>
         </div>
       );
     }
 
-    return (
-      <div className="space-y-2">
-            <Label>Email</Label>
-            <Input 
-              type="email" 
-              placeholder="name@example.com" 
-              value={email} 
-              onChange={e => setEmail(e.target.value)} 
-              required 
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Password</Label>
-            <Input 
-              type='password' 
-              placeholder='••••••••' 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
-              required 
-            />
-            {isSignUp && (
-              <div className='flex items-center justify-center p-4 bg-secondary/30 rounded-lg'>
-                <p className='text-sm text-muted-foreground text-center'>
-                  reCAPTCHA verification will be performed on submission
-                </p>
-              </div>
-            )}
-{isSignUp && (
-              <div className='text-xs text-muted-foreground space-y-1'>
-                <p>Password must have:</p>
-                <ul className='list-disc list-inside space-y-0.5 ml-2'>
-                  <li className={password.length >= 8 ? 'text-green-600' : ''}>At least 8 characters</li>
-                  <li className={/[A-Z]/.test(password) ? 'text-green-600' : ''}>One uppercase letter</li>
-                  <li className={/[a-z]/.test(password) ? 'text-green-600' : ''}>One lowercase letter</li>
-                  <li className={/[0-9]/.test(password) ? 'text-green-600' : ''}>One number</li>
-                  <li className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? 'text-green-600' : ''}>One symbol</li>
-                </ul>
-              </div>
-            )}
-          </div>
-          <Button type="submit" className="w-full h-12 text-lg rounded-full" disabled={loading}>
-            {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
-          </Button>
-        </form>
-
-        <div className="relative py-4">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
-          </div>
-        </div>
-
-        <div className="flex flex-col items-center justify-center space-y-4">
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => {
-              toast.error("Login Failed");
-            }}
-            useOneTap
-            shape="circle"
-            width="100%"
-          />
-        </div>
-
-        <p className="text-center text-sm text-muted-foreground mt-4">
-          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <button 
-            className="text-accent font-medium hover:underline"
-            onClick={() => setIsSignUp(!isSignUp)}
-          >
-            {isSignUp ? 'Sign In' : 'Sign Up'}
-          </button>
-        </p>
-
-        <div className="text-center text-xs text-muted-foreground mt-2">
-          By continuing, you agree to our Terms of Service and Privacy Policy.
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-};
+    return this.props.children;
+  }
+}
 
 const BottomNav = ({ currentView, onNavigate, unreadCount = 0, orderUnreadCount = 0, onOrderBadgeClick, hidden = false }: { currentView: string, onNavigate: (view: string) => void, unreadCount?: number, orderUnreadCount?: number, onOrderBadgeClick?: () => void, hidden?: boolean }) => {
   const { user, login } = useAuth();
@@ -532,7 +816,7 @@ const handleSearch = useCallback(async () => {
                         <div className="absolute -top-1 -right-1 h-5 w-5 bg-accent rounded-full border-2 border-background flex items-center justify-center">
                           <span className="text-[10px] text-white font-bold">{conv.unreadCount > 9 ? '9+' : conv.unreadCount}</span>
                         </div>
-                      ))}`
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center">
@@ -768,6 +1052,7 @@ const BusinessProfileModal = ({ sellerId, onClose }: { sellerId: string, onClose
   const [seller, setSeller] = useState<User | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [productSearch, setProductSearch] = useState('');
 
   const fetchData = async () => {
     try {
@@ -933,54 +1218,71 @@ const handleChat = async () => {
 
             <Separator />
 
-            <div className="space-y-4">
-              <h3 className="font-medium uppercase tracking-widest text-xs">Boutique Items ({products.length})</h3>
-              <div className="grid grid-cols-2 gap-4">
-                {products.map(p => (
-                  <div key={p.id} className="group cursor-pointer relative">
-                    <div className="aspect-square rounded-xl overflow-hidden bg-secondary">
-                      <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" />
+            {(function() {
+                const filteredProducts = products.filter(p => 
+                  productSearch === '' || 
+                  p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+                  p.category?.toLowerCase().includes(productSearch.toLowerCase())
+                );
+                if (filteredProducts.length === 0) {
+                  return (
+                    <div className="col-span-full text-center py-12 bg-secondary/30 rounded-2xl">
+                      <Search className="h-12 w-12 mx-auto text-muted-foreground/30" />
+                      <p className="text-muted-foreground mt-4">
+                        {productSearch ? 'No products match your search' : 'No products yet'}
+                      </p>
                     </div>
-                    <Button 
-                      size="icon" 
-                      className="absolute bottom-2 right-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-paper shadow-lg"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addItem(p);
-                      }}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                    <div className="mt-2 space-y-1">
-                      <p className="text-sm font-medium line-clamp-1">{p.name}</p>
-                      <div className="flex items-center gap-2">
-                        {p.discount && p.discount > 0 ? (
-                          <>
-                            <span className="text-sm font-medium">{formatPrice(p.price * (1 - p.discount / 100))}</span>
-                            <span className="text-xs text-muted-foreground line-through">{formatPrice(p.price)}</span>
-                          </>
-                        ) : (
-                          <span className="text-sm font-medium">{formatPrice(p.price)}</span>
-                        )}
-                      </div>
-                      {p.bulkDiscountMinQty && p.bulkDiscountPercent && (
-                        <p className="text-[10px] text-muted-foreground">
-                          Buy {p.bulkDiscountMinQty}+ get {p.bulkDiscountPercent}% off
-                        </p>
-                      )}
+                  );
+                }
+                return (
+                  <div className="space-y-4">
+                    <h3 className="font-medium uppercase tracking-widest text-xs">Boutique Items ({filteredProducts.length})</h3>
+                    <Input
+                      placeholder="Search products..."
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      className="h-9"
+                    />
+                    <div className="grid grid-cols-2 gap-4">
+                      {filteredProducts.map(p => (
+                        <div key={p.id} className="group cursor-pointer relative">
+                          <div className="aspect-square rounded-xl overflow-hidden bg-secondary">
+                            <img src={p.images[0]} alt={p.name} className="h-full w-full object-contain transition-transform group-hover:scale-105" />
+                          </div>
+                          <Button 
+                            size="icon" 
+                            className="absolute bottom-2 right-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-paper shadow-lg"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addItem(p);
+                            }}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                          <div className="mt-2 space-y-1">
+                            <p className="text-sm font-medium line-clamp-1">{p.name}</p>
+                            <div className="flex items-center gap-2">
+                              {p.discount && p.discount > 0 ? (
+                                <>
+                                  <span className="text-sm font-medium">{formatPrice(p.price * (1 - p.discount / 100))}</span>
+                                  <span className="text-xs text-muted-foreground line-through">{formatPrice(p.price)}</span>
+                                </>
+                              ) : (
+                                <span className="text-sm font-medium">{formatPrice(p.price)}</span>
+                              )}
+                            </div>
+                            {p.bulkDiscountMinQty && p.bulkDiscountPercent && (
+                              <p className="text-[10px] text-muted-foreground">
+                                Buy {p.bulkDiscountMinQty}+ get {p.bulkDiscountPercent}% off
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-))}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-full text-center py-12 bg-secondary/30 rounded-2xl">
-              <Search className="h-12 w-12 mx-auto text-muted-foreground/30" />
-              <p className="text-muted-foreground mt-4">
-                {productSearch ? 'No products match your search' : 'No products yet'}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+                );
+              })()}
           </div>
         </ScrollArea>
       </DialogContent>
@@ -1007,6 +1309,7 @@ const AdminDashboard = () => {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [announcement, setAnnouncement] = useState<Partial<Announcement> | null>(null);
   const [announcementForm, setAnnouncementForm] = useState({
     id: '',
     text: '',
@@ -1030,6 +1333,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     fetchData();
+    fetchAnnouncement();
   }, []);
 
   const filteredOrders = orderSearch.trim() 
@@ -1071,6 +1375,19 @@ const AdminDashboard = () => {
       setAnnouncements(a || []);
     } catch (error) {
       console.error("Failed to fetch admin data", error);
+    }
+  };
+
+  const fetchAnnouncement = async () => {
+    try {
+      const announcements = await api.get('/announcements/active');
+      if (announcements && announcements.length > 0) {
+        setAnnouncement(announcements[0] as Partial<Announcement>);
+      } else {
+        setAnnouncement(null);
+      }
+    } catch (e) {
+      console.error("Failed to fetch announcement", e);
     }
   };
 
@@ -1507,9 +1824,9 @@ const AdminDashboard = () => {
                                     <Badge variant={!lastSeen || isInactive ? (isLastSeenMonth ? 'destructive' : 'secondary') : 'default'}>
                                       {!lastSeen ? 'Never active' : isLastSeenMonth ? `Last seen ${lastSeen.toLocaleDateString()}` : isInactive ? 'Inactive' : 'Active'}
                                     </Badge>
-                                    {lastSeen && (
+{lastSeen && (
                                       <span className="text-xs text-muted-foreground">Last seen: {lastSeen.toLocaleDateString()}</span>
-)
+                                    )}
                                   </>
                                 );
                               })()}
@@ -1895,7 +2212,7 @@ const AdminDashboard = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Theme Color</Label>
-                <Select value={announcementForm.theme} onValueChange={(val) => setAnnouncementForm({...announcementForm, theme: val})}>
+                <Select value={announcementForm.theme || 'accent'} onValueChange={(val) => setAnnouncementForm({...announcementForm, theme: val as string})}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1909,7 +2226,7 @@ const AdminDashboard = () => {
               </div>
               <div className="space-y-2">
                 <Label>Font Size</Label>
-                <Select value={announcementForm.fontSize} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontSize: val})}>
+                <Select value={announcementForm.fontSize || 'text-sm'} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontSize: val as string})}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1933,7 +2250,7 @@ const AdminDashboard = () => {
               </div>
               <div className="space-y-2">
                 <Label>Text Font Weight</Label>
-                <Select value={announcementForm.fontWeight} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontWeight: val})}>
+                <Select value={announcementForm.fontWeight || '400'} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontWeight: val as string})}>
                   <SelectTrigger>
                     <SelectValue placeholder="Normal" />
                   </SelectTrigger>
@@ -2019,26 +2336,19 @@ const AdminDashboard = () => {
                   <p className="text-sm">{new Date(selectedOrderForAdmin.createdAt).toLocaleString()}</p>
                 </div>
               </div>
-              
-                <div>
-                  <p className='text-xs uppercase tracking-widest text-muted-foreground mb-2'>Items</p>
-                  <div className='space-y-2 max-h-40 overflow-y-auto'>
-                    {(selectedOrderForAdmin.items || []).map((item, idx) => (
-                      <div key={idx} className='flex justify-between text-sm p-2 bg-secondary/30 rounded'>
-                        <span>{item.name} x{item.quantity}</span>
-                        <span>{formatPrice(item.price * item.quantity)}</span>
-                      </div>
-                     )}
-                   </div>
-                 </div>
-                </div>
-                   ))}
-                 </div>
-               </div>
+
+              <div>
+                <p className='text-xs uppercase tracking-widest text-muted-foreground mb-2'>Items</p>
+                <div className='space-y-2 max-h-40 overflow-y-auto'>
+                  {(selectedOrderForAdmin.items || []).map((item, idx) => (
+                    <div key={idx} className='flex justify-between text-sm p-2 bg-secondary/30 rounded'>
+                      <span>{item.name} x{item.quantity}</span>
+                      <span>{formatPrice(item.price * item.quantity)}</span>
+                    </div>
                   ))}
                 </div>
               </div>
-              
+               
               <div>
                 <p className="text-xs text-muted-foreground mb-2">Sub-Orders (Per Seller)</p>
                 <div className="space-y-2">
@@ -4906,7 +5216,9 @@ const CheckoutView = ({ products, onComplete }: { products: Product[], onComplet
       const simplifiedItems = items.map(item => ({
         productId: item.productId,
         quantity: item.quantity,
-        price: calculateItemPrice(item) / item.quantity
+        price: calculateItemPrice(item) / item.quantity,
+        name: item.name,
+        image: item.image
       }));
       
       const orderData: Order = {
@@ -5342,122 +5654,61 @@ const WalletView = ({ user }: { user: User }) => {
   );
 };
 
-// --- Main App ---
-
-const AppContent = () => {
+const MainAppComp = () => {
+  const { user, logout, login } = useAuth();
+  const { addItem } = useCart();
   const [view, setView] = useState('home');
   const [products, setProducts] = useState<Product[]>([]);
-  const [bestSellers, setBestSellers] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilters, setSearchFilters] = useState({
+    category: 'all',
+    minPrice: '',
+    maxPrice: '',
+    condition: 'all',
+    sortBy: 'newest'
+  });
+  const [compareList, setCompareList] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [menuSection, setMenuSection] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<Partial<Announcement> | null>(null);
+  const [announcementForm, setAnnouncementForm] = useState({
+    id: '',
+    text: '',
+    theme: 'accent',
+    fontSize: 'text-sm',
+    fontFamily: '',
+    fontWeight: '',
+    padding: '8px 16px',
+    borderRadius: '0px',
+    duration: 60,
+    closable: true,
+    buttonText: '',
+    buttonColor: '#ffffff',
+    buttonBgColor: '#000000',
+    buttonLink: '',
+    buttonPadding: '8px 16px',
+    buttonRadius: '4px'
+  });
+  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
+  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
+  const [isInChat, setIsInChat] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [unreadOrdersCount, setUnreadOrdersCount] = useState(0);
-  const [announcement, setAnnouncement] = useState<{text: string, theme: string, fontSize: string, fontFamily?: string, fontWeight?: string, padding: string, borderRadius: string, duration: number, closable: boolean, buttonText?: string, buttonColor?: string, buttonBgColor?: string, buttonLink?: string, buttonPadding?: string, buttonRadius?: string} | null>(null);
-  const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
-  const [announcementData, setAnnouncementData] = useState({ text: '', theme: 'accent', fontSize: 'text-sm', fontFamily: '', fontWeight: '', padding: '8px 16px', borderRadius: '0px', duration: 60, closable: true, buttonText: '', buttonColor: '#ffffff', buttonBgColor: '#000000', buttonLink: '', buttonPadding: '8px 16px', buttonRadius: '4px' });
-  const [isInChat, setIsInChat] = useState(false);
-  const [compareList, setCompareList] = useState<Product[]>([]);
-  const [showCompare, setShowCompare] = useState(false);
-  const [searchFilters, setSearchFilters] = useState({ category: 'all', minPrice: '', maxPrice: '', condition: 'all', sortBy: 'newest' });
-  const { user, login, logout } = useAuth();
-  const { addItem } = useCart();
-  const { formatPrice } = useCurrency();
-
-  const fetchUnreadCount = useCallback(async () => {
-    if (!user) {
-      setUnreadMessagesCount(0);
-      return;
-    }
-     try {
-       const msgs = await api.get(`/messages/${user.uid}?currentUserId=${user.uid}`);
-       setUnreadMessagesCount(msgs.filter((m: Message) => !m.read && m.receiverId === user.uid).length);
-     } catch (error) {
-       console.error('Failed to fetch unread messages:', error);
-     }
-  }, [user]);
-
-  const fetchUnreadOrdersCount = useCallback(async () => {
-    if (!user || (user.role !== 'seller' && user.role !== 'admin' && user.role !== 'master')) {
-      setUnreadOrdersCount(0);
-      return;
-    }
-    try {
-      const orders = await api.get(`/orders?sellerId=${user.uid}&status=pending`);
-      setUnreadOrdersCount(orders?.length || 0);
-    } catch (e) {
-      console.error("Failed to fetch unread orders count", e);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchUnreadCount();
-    fetchUnreadOrdersCount();
-    const interval = setInterval(() => {
-      fetchUnreadCount();
-      fetchUnreadOrdersCount();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [fetchUnreadCount, fetchUnreadOrdersCount]);
 
   const fetchProducts = async () => {
     try {
-      const prods = await api.get('/products?includeUnapproved=true&all=true') || [];
-      const uniqueProducts = prods.filter((p: Product, index: number, self: Product[]) => 
-        index === self.findIndex((t: Product) => t.id === p.id)
-      );
-      setProducts(uniqueProducts);
+      const prods = await api.get('/products?isApproved=1') || [];
+      setProducts(prods);
     } catch (error) {
       console.error("Failed to fetch products", error);
-      setProducts([]);
     }
   };
-
-  const fetchBestSellers = async () => {
-    try {
-      const best = await api.get('/best-sellers?limit=50');
-      setBestSellers(best || []);
-    } catch (error) {
-      console.error("Failed to fetch best sellers", error);
-    }
-  };
-
-  useEffect(() => {
-    fetchProducts();
-    fetchBestSellers();
-    fetchAnnouncement();
-    const interval = setInterval(() => {
-      fetchProducts();
-      fetchBestSellers();
-      fetchAnnouncement();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
   const fetchAnnouncement = async () => {
     try {
       const announcements = await api.get('/announcements/active');
       if (announcements && announcements.length > 0) {
-        const a = announcements[0];
-        setAnnouncement({
-          text: a.text,
-          theme: a.theme,
-          fontSize: a.fontSize,
-          fontFamily: a.fontFamily,
-          fontWeight: a.fontWeight,
-          padding: a.padding,
-          borderRadius: a.borderRadius,
-          duration: a.duration,
-          closable: !!a.closable,
-          buttonText: a.buttonText || '',
-          buttonColor: a.buttonColor || '#ffffff',
-          buttonBgColor: a.buttonBgColor || '#000000',
-          buttonLink: a.buttonLink || '',
-          buttonPadding: a.buttonPadding || '8px 16px',
-          buttonRadius: a.buttonRadius || '4px'
-        });
+        setAnnouncement(announcements[0] as Partial<Announcement>);
       } else {
         setAnnouncement(null);
       }
@@ -5466,40 +5717,7 @@ const AppContent = () => {
     }
   };
 
-const filteredProducts = products.filter(p => 
-    (p.isApproved === 1) && (
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.sellerName && p.sellerName.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
-  );
-
-  const handleSearchWithFilters = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (searchQuery) params.append('q', searchQuery);
-      if (searchFilters.category !== 'all') params.append('category', searchFilters.category);
-      if (searchFilters.minPrice) params.append('minPrice', searchFilters.minPrice);
-      if (searchFilters.maxPrice) params.append('maxPrice', searchFilters.maxPrice);
-      if (searchFilters.condition !== 'all') params.append('condition', searchFilters.condition);
-      params.append('sortBy', searchFilters.sortBy);
-      
-      const results = await api.get(`/products/search?${params.toString()}`);
-      setProducts(results || []);
-    } catch (error) {
-      console.error("Search failed", error);
-    }
-  };
-
-  useEffect(() => {
-    if (searchQuery || searchFilters.category !== 'all' || searchFilters.minPrice || searchFilters.maxPrice || searchFilters.condition !== 'all') {
-      handleSearchWithFilters();
-    } else {
-      fetchProducts();
-    }
-  }, [searchQuery, searchFilters]);
-
-const toggleCompare = (product: Product) => {
+  const toggleCompare = (product: Product) => {
     setCompareList(prev => {
       if (prev.find(p => p.id === product.id)) {
         return prev.filter(p => p.id !== product.id);
@@ -5512,10 +5730,15 @@ const toggleCompare = (product: Product) => {
     });
   };
 
-  const handleProductSelect = (product: Product) => {
+const handleProductSelect = (product: Product) => {
     setSelectedProduct(product);
     api.post('/products', { ...product, visitCount: (product.visitCount || 0) + 1 });
   };
+
+  useEffect(() => {
+    fetchProducts();
+    fetchAnnouncement();
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -5524,42 +5747,42 @@ const toggleCompare = (product: Product) => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`fixed top-0 left-0 right-0 z-50 px-4 py-2 relative ${announcement.theme === 'red' ? 'bg-red-600' : announcement.theme === 'green' ? 'bg-green-600' : announcement.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'}`}
+          className={`fixed top-0 left-0 right-0 z-50 px-4 py-2 relative ${announcement?.theme === 'red' ? 'bg-red-600' : announcement?.theme === 'green' ? 'bg-green-600' : announcement?.theme === 'blue' ? 'bg-blue-600' : 'bg-accent'}`}
           style={{
-            fontSize: announcement.fontSize,
-            fontFamily: announcement.fontFamily || 'inherit',
-            fontWeight: announcement.fontWeight || 400,
+            fontSize: announcement?.fontSize,
+            fontFamily: announcement?.fontFamily || 'inherit',
+            fontWeight: announcement?.fontWeight || 400,
           }}
         >
           <div className="flex items-center justify-center gap-3 flex-wrap">
-            <span className="text-paper font-medium" style={{ padding: announcement.closable && announcement.buttonText ? undefined : announcement.padding, borderRadius: announcement.closable && announcement.buttonText ? undefined : announcement.borderRadius }}>
-              {announcement.text}
-            </span>
-            {announcement.buttonText && (
-              <a 
-                href={announcement.buttonLink || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center text-sm font-medium rounded transition-opacity hover:opacity-90"
-                style={{
-                  color: announcement.buttonColor || '#ffffff',
-                  backgroundColor: announcement.buttonBgColor || '#000000',
-                  padding: announcement.buttonPadding || '8px 16px',
-                  borderRadius: announcement.buttonRadius || '4px'
-                }}
-              >
-                {announcement.buttonText}
-              </a>
-            )}
-            {announcement?.closable && !announcement.buttonText && (
-              <button className="text-paper text-xs opacity-70 hover:opacity-100 ml-2" onClick={() => setAnnouncement(null)}>✕</button>
-            )}
-          </div>
-          {announcement?.closable && announcement.buttonText && (
-            <button className="absolute right-4 top-1/2 -translate-y-1/2 text-paper text-xs opacity-70 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setAnnouncement(null); }}>✕</button>
-          )}
-        </motion.div>
-      )}
+              <span className="text-paper font-medium" style={{ padding: announcement?.closable && announcement?.buttonText ? undefined : announcement?.padding, borderRadius: announcement?.closable && announcement?.buttonText ? undefined : announcement?.borderRadius }}>
+                {announcement?.text}
+              </span>
+              {announcement?.buttonText && (
+                <a 
+                  href={announcement?.buttonLink || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center text-sm font-medium rounded transition-opacity hover:opacity-90"
+                  style={{
+                    color: announcement?.buttonColor || '#ffffff',
+                    backgroundColor: announcement?.buttonBgColor || '#000000',
+                    padding: announcement?.buttonPadding || '8px 16px',
+                    borderRadius: announcement?.buttonRadius || '4px'
+                  }}
+                >
+                  {announcement?.buttonText}
+                </a>
+              )}
+              {announcement?.closable && !announcement?.buttonText && (
+                <button className="text-paper text-xs opacity-70 hover:opacity-100 ml-2" onClick={() => setAnnouncement(null)}>✕</button>
+              )}
+              {announcement?.closable && announcement?.buttonText && (
+                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-paper text-xs opacity-70 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setAnnouncement(null); }}>✕</button>
+)}
+            </div>
+          </motion.div>
+        )}
 
       
 
@@ -5574,15 +5797,15 @@ const toggleCompare = (product: Product) => {
               <Label>Announcement Text</Label>
               <Textarea 
                 placeholder="Enter your announcement..."
-                value={announcementData.text}
-                onChange={(e) => setAnnouncementData({...announcementData, text: e.target.value})}
+                value={announcementForm.text}
+                onChange={(e) => setAnnouncementForm({...announcementForm, text: e.target.value})}
                 rows={3}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Theme Color</Label>
-                <Select value={announcementData.theme} onValueChange={(val) => setAnnouncementData({...announcementData, theme: val})}>
+                <Select value={announcementForm.theme || 'accent'} onValueChange={(val) => setAnnouncementForm({...announcementForm, theme: val as string})}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="accent">Default</SelectItem>
@@ -5594,7 +5817,7 @@ const toggleCompare = (product: Product) => {
               </div>
               <div className="space-y-2">
                 <Label>Font Size</Label>
-                <Select value={announcementData.fontSize} onValueChange={(val) => setAnnouncementData({...announcementData, fontSize: val})}>
+                <Select value={announcementForm.fontSize || 'text-sm'} onValueChange={(val) => setAnnouncementForm({...announcementForm, fontSize: val as string})}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="text-xs">Small</SelectItem>
@@ -5605,7 +5828,7 @@ const toggleCompare = (product: Product) => {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Padding</Label>
                 <Input 
@@ -5618,8 +5841,8 @@ const toggleCompare = (product: Product) => {
                 <Label>Border Radius</Label>
                 <Input 
                   placeholder="e.g. 8px"
-                  value={announcementData.borderRadius}
-                  onChange={(e) => setAnnouncementData({...announcementData, borderRadius: e.target.value})}
+                  value={announcementForm.borderRadius}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, borderRadius: e.target.value})}
                 />
               </div>
             </div>
@@ -5628,15 +5851,15 @@ const toggleCompare = (product: Product) => {
               <Input 
                 type="number"
                 placeholder="60 = 1 hour"
-                value={announcementData.duration}
-                onChange={(e) => setAnnouncementData({...announcementData, duration: Number(e.target.value)})}
+                value={announcementForm.duration}
+                onChange={(e) => setAnnouncementForm({...announcementForm, duration: Number(e.target.value)})}
               />
             </div>
             <div className="flex items-center gap-2">
               <input 
                 type="checkbox" 
-                checked={announcementData.closable}
-                onChange={(e) => setAnnouncementData({...announcementData, closable: e.target.checked})}
+                checked={announcementForm.closable}
+                onChange={(e) => setAnnouncementForm({...announcementForm, closable: e.target.checked})}
               />
               <Label>Closable by users</Label>
             </div>
@@ -5647,16 +5870,16 @@ const toggleCompare = (product: Product) => {
                 <Label>Button Text</Label>
                 <Input 
                   placeholder="e.g., Shop Now"
-                  value={announcementData.buttonText}
-                  onChange={(e) => setAnnouncementData({...announcementData, buttonText: e.target.value})}
+                  value={announcementForm.buttonText}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonText: e.target.value})}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Button Link</Label>
                 <Input 
                   placeholder="e.g., /shop or https://..."
-                  value={announcementData.buttonLink}
-                  onChange={(e) => setAnnouncementData({...announcementData, buttonLink: e.target.value})}
+                  value={announcementForm.buttonLink}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonLink: e.target.value})}
                 />
               </div>
             </div>
@@ -5666,13 +5889,13 @@ const toggleCompare = (product: Product) => {
                 <div className="flex gap-2">
                   <Input 
                     type="color"
-                    value={announcementData.buttonColor}
-                    onChange={(e) => setAnnouncementData({...announcementData, buttonColor: e.target.value})}
+                    value={announcementForm.buttonColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonColor: e.target.value})}
                     className="w-10 h-10 p-1"
                   />
                   <Input 
-                    value={announcementData.buttonColor}
-                    onChange={(e) => setAnnouncementData({...announcementData, buttonColor: e.target.value})}
+                    value={announcementForm.buttonColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonColor: e.target.value})}
                     placeholder="#ffffff"
                     className="flex-1"
                   />
@@ -5683,13 +5906,13 @@ const toggleCompare = (product: Product) => {
                 <div className="flex gap-2">
                   <Input 
                     type="color"
-                    value={announcementData.buttonBgColor}
-                    onChange={(e) => setAnnouncementData({...announcementData, buttonBgColor: e.target.value})}
+                    value={announcementForm.buttonBgColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonBgColor: e.target.value})}
                     className="w-10 h-10 p-1"
                   />
                   <Input 
-                    value={announcementData.buttonBgColor}
-                    onChange={(e) => setAnnouncementData({...announcementData, buttonBgColor: e.target.value})}
+                    value={announcementForm.buttonBgColor}
+                    onChange={(e) => setAnnouncementForm({...announcementForm, buttonBgColor: e.target.value})}
                     placeholder="#000000"
                     className="flex-1"
                   />
@@ -5700,29 +5923,29 @@ const toggleCompare = (product: Product) => {
               <div className="space-y-2">
                 <Label>Button Padding</Label>
                 <Input 
-                  value={announcementData.buttonPadding}
-                  onChange={(e) => setAnnouncementData({...announcementData, buttonPadding: e.target.value})}
+                  value={announcementForm.buttonPadding}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonPadding: e.target.value})}
                   placeholder="8px 16px"
                 />
               </div>
               <div className="space-y-2">
                 <Label>Button Radius</Label>
                 <Input 
-                  value={announcementData.buttonRadius}
-                  onChange={(e) => setAnnouncementData({...announcementData, buttonRadius: e.target.value})}
+                  value={announcementForm.buttonRadius}
+                  onChange={(e) => setAnnouncementForm({...announcementForm, buttonRadius: e.target.value})}
                   placeholder="4px"
                 />
               </div>
             </div>
             <Button className="w-full" onClick={async () => {
-              if (!announcementData.text.trim()) {
+              if (!announcementForm.text.trim()) {
                 toast.error('Please enter announcement text');
                 return;
               }
               try {
                 await api.post('/announcements', {
-                  id: crypto.randomUUID(),
-                  ...announcementData
+                  ...announcementForm,
+                  id: announcementForm.id || crypto.randomUUID()
                 });
                 await fetchAnnouncement();
                 toast.success('Announcement posted!');
@@ -5769,7 +5992,7 @@ const toggleCompare = (product: Product) => {
               <Button variant="ghost" onClick={() => setView('best-sellers')}>View All <ChevronRight className="ml-1 h-4 w-4" /></Button>
             </div>
             <ProductGrid 
-              products={filteredProducts} 
+              products={products} 
               onProductClick={handleProductSelect} 
               onBusinessClick={setSelectedSellerId}
               compareList={compareList}
@@ -5787,7 +6010,7 @@ const toggleCompare = (product: Product) => {
               <Button variant="ghost" onClick={() => setView('home')}>Back <ChevronRight className="ml-1 h-4 w-4 rotate-180" /></Button>
             </div>
             <ProductGrid 
-              products={bestSellers} 
+              products={products} 
               onProductClick={handleProductSelect} 
               onBusinessClick={setSelectedSellerId}
               compareList={compareList}
@@ -5900,14 +6123,12 @@ const toggleCompare = (product: Product) => {
   );
 };
 
-export { ErrorBoundary };
-
 export default function App() {
   return (
     <AuthProvider>
       <CurrencyProvider>
         <CartProvider>
-          <AppContent />
+          <MainAppComp />
           <Toaster position="top-center" richColors />
         </CartProvider>
       </CurrencyProvider>
