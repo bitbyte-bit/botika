@@ -226,30 +226,40 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const decoded = jwtDecode<{ sub: string; email: string; name: string; picture: string }>(credentialResponse.credential);
       
-      // Check if user exists in backend, if not create them
-      let user = await api.get(`/users/${decoded.sub}`);
-      if (!user) {
+      // Save user locally first
+      const user: User = {
+        uid: decoded.sub || '',
+        email: decoded.email || '',
+        displayName: decoded.name || '',
+        photoURL: decoded.picture || '',
+        role: 'customer',
+        createdAt: new Date().toISOString()
+      };
+      
+      // Try to save to backend (non-blocking)
+      try {
         await api.post('/users', {
-          uid: decoded.sub,
-          email: decoded.email,
-          displayName: decoded.name,
-          photoURL: decoded.picture,
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          photoURL: user.photoURL,
           role: 'customer',
           status: 'active',
-          createdAt: new Date().toISOString()
+          createdAt: user.createdAt
         });
-        user = { uid: decoded.sub, email: decoded.email, displayName: decoded.name, photoURL: decoded.picture, role: 'customer', status: 'active' };
+      } catch (e) {
+        console.log('User may already exist');
       }
       
       setUser(user);
       localStorage.setItem('user', JSON.stringify(user));
-      closeLoginModal();
+      setShowLoginModal(false);
       toast.success('Welcome!');
     } catch (error) {
       console.error('Google login error:', error);
       toast.error('Login failed');
     }
-  }, [setUser, closeLoginModal]);
+  }, [setUser]);
 
   const logout = useCallback(() => {
     setUser(null);
@@ -263,10 +273,28 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [signupName, setSignupName] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+
+  const passwordValidations = {
+    length: signupPassword.length >= 8,
+    uppercase: /[A-Z]/.test(signupPassword),
+    lowercase: /[a-z]/.test(signupPassword),
+    number: /[0-9]/.test(signupPassword),
+    symbol: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(signupPassword)
+  };
+  const isPasswordValid = authMode === 'signin' || Object.values(passwordValidations).every(v => v);
 
   const handleSignup = async () => {
     if (!signupEmail || !signupPassword || !signupName) {
       toast.error('Please fill in all fields');
+      return;
+    }
+    if (!isPasswordValid) {
+      toast.error('Password does not meet requirements');
+      return;
+    }
+    if (!acceptTerms) {
+      toast.error('Please accept terms and conditions');
       return;
     }
     setAuthLoading(true);
@@ -399,8 +427,49 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
             value={signupPassword}
             onChange={(e) => setSignupPassword(e.target.value)}
           />
+          {authMode === 'signup' && signupPassword && (
+            <div className="text-xs space-y-1">
+              <p className={passwordValidations.length ? "text-green-500" : "text-muted-foreground"}>
+                {passwordValidations.length ? "✓" : "✗"} At least 8 characters
+              </p>
+              <p className={passwordValidations.uppercase ? "text-green-500" : "text-muted-foreground"}>
+                {passwordValidations.uppercase ? "✓" : "✗"} One uppercase letter
+              </p>
+              <p className={passwordValidations.lowercase ? "text-green-500" : "text-muted-foreground"}>
+                {passwordValidations.lowercase ? "✓" : "✗"} One lowercase letter
+              </p>
+              <p className={passwordValidations.number ? "text-green-500" : "text-muted-foreground"}>
+                {passwordValidations.number ? "✓" : "✗"} One number
+              </p>
+              <p className={passwordValidations.symbol ? "text-green-500" : "text-muted-foreground"}>
+                {passwordValidations.symbol ? "✓" : "✗"} One symbol (!@#$%^&*...)
+              </p>
+            </div>
+          )}
         </div>
-        <Button onClick={authMode === 'signup' ? handleSignup : handleLogin} disabled={authLoading} className="w-full">
+        
+        {authMode === 'signup' && (
+          <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={acceptTerms}
+              onChange={(e) => setAcceptTerms(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              I agree to the{' '}
+              <a href="#" className="text-accent underline">Terms of Service</a>
+              {' '}and{' '}
+              <a href="#" className="text-accent underline">Privacy Policy</a>
+            </span>
+          </label>
+        )}
+        
+        <Button 
+          onClick={authMode === 'signup' ? handleSignup : handleLogin} 
+          disabled={authLoading || (authMode === 'signup' && (!isPasswordValid || !acceptTerms))} 
+          className="w-full"
+        >
           {authLoading ? 'Loading...' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
         </Button>
         

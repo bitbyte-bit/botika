@@ -23,6 +23,35 @@ const SMTP_CONFIG = {
   }
 };
 
+const MAILERSEND_API_TOKEN = "mlsn.0bc7f59ccf7894e2bf0f192af3cb753690d0480de1c88068caadf1fd66b42fca";
+
+async function verifyEmailWithMailerSend(email) {
+  try {
+    const response = await fetch('https://api.mailersend.com/v1/email-verification/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MAILERSEND_API_TOKEN}`
+      },
+      body: JSON.stringify({ email })
+    });
+    
+    if (!response.ok) {
+      console.error('MailerSend API error:', response.status, response.statusText);
+      return { valid: true, isVerified: false };
+    }
+    
+    const data = await response.json();
+    return {
+      valid: data.data?.verification_status === 'deliverable',
+      isVerified: data.data?.verification_status === 'deliverable'
+    };
+  } catch (error) {
+    console.error('Email verification error:', error);
+    return { valid: true, isVerified: false };
+  }
+}
+
 const emailTransporter = nodemailer.createTransport({
   host: SMTP_CONFIG.host,
   port: SMTP_CONFIG.port,
@@ -61,6 +90,8 @@ db.exec(`
     businessDescription TEXT,
     password TEXT,
     createdAt TEXT,
+    verificationCode TEXT,
+    isVerified INTEGER DEFAULT 0,
     location TEXT,
     phoneAirtel TEXT,
     phoneMTN TEXT,
@@ -303,7 +334,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   app.post("/api/auth/signup", async (req, res) => {
-    const { email, password, displayName } = req.body;
+    const { email, password, displayName, businessName, businessDescription, location, phoneAirtel, phoneMTN } = req.body;
     
     if (!email || !password || !displayName) {
       return res.status(400).json({ error: 'Email, password, and display name are required' });
@@ -328,15 +359,21 @@ async function startServer() {
     if (existing) {
       return res.status(400).json({ error: "Email already exists" });
     }
+    
+    const emailVerification = await verifyEmailWithMailerSend(email);
+    if (!emailVerification.valid) {
+      return res.status(400).json({ error: "Invalid or undeliverable email address" });
+    }
+    
     try {
       const uid = Math.random().toString(36).substring(2, 15);
       const hashedPassword = await bcrypt.hash(password, 10);
       const verificationCode = Math.random().toString(36).substring(2, 10).toUpperCase();
       
       db.prepare(`
-        INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password, verificationCode, isVerified, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(uid, email, displayName, '', 'customer', 'pending', new Date().toISOString(), hashedPassword, verificationCode, 0, null, null, null, null, null);
+        INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password, verificationCode, isVerified, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles, businessName, businessDescription)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(uid, email, displayName, '', 'customer', 'pending', new Date().toISOString(), hashedPassword, verificationCode, 0, location || null, phoneAirtel || null, phoneMTN || null, null, null, businessName || null, businessDescription || null);
       
       const verificationUrl = `${req.protocol}://${req.get('host')}/verify?code=${verificationCode}&email=${encodeURIComponent(email)}`;
       
@@ -445,11 +482,11 @@ async function startServer() {
     if (email.toLowerCase() === 'bikuumba@gmail.com' && password === 'bikuumba') {
       let adminUser = db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get('bikuumba@gmail.com');
       
-      // If no admin user exists, create one
+// If no admin user exists, create one
       if (!adminUser) {
         const stmt = db.prepare(`
           INSERT INTO users (uid, email, displayName, photoURL, role, status, createdAt, password)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run('admin-' + Date.now(), 'bikuumba@gmail.com', 'Bikuumba Admin', '', 'admin', 'active', new Date().toISOString(), 'bikuumba');
         adminUser = db.prepare("SELECT * FROM users WHERE LOWER(email) = ?").get('bikuumba@gmail.com');
@@ -468,16 +505,13 @@ async function startServer() {
     try {
       const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
       if (!user) {
-        return res.status(401).json({ error: "Invalid email or password" });
+        return res.status(401).json({ error: "Invalid email or password", emailNotFound: true });
       }
       if (user.status === 'banned') {
         return res.status(403).json({ error: "Your account has been banned" });
       }
       if (user.status === 'suspended') {
         return res.status(403).json({ error: "Your account is currently suspended" });
-      }
-      if (user.isVerified !== 1) {
-        return res.status(403).json({ error: "Please verify your email first", needsVerification: true });
       }
       let validPassword = false;
       if (user.password && user.password.startsWith('$2')) {
@@ -488,11 +522,67 @@ async function startServer() {
       if (!validPassword) {
         return res.status(401).json({ error: "Invalid email or password" });
       }
+      if (user.isVerified !== 1) {
+        return res.status(403).json({ error: "Please verify your email first", needsVerification: true });
+      }
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (err) {
       console.error('Login error:', err);
       res.status(500).json({ error: 'Server error during login' });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    try {
+      const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      if (!user) {
+        return res.status(404).json({ error: "No account found with this email" });
+      }
+      const resetCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      db.prepare("UPDATE users SET verificationCode = ? WHERE email = ?").run(resetCode, email);
+      
+      await emailTransporter.sendMail({
+        from: '"Bikuumba" <noreply@zionnent.com>',
+        to: email,
+        subject: 'Reset your Bikuumba password',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">Reset Your Password</h2>
+            <p>Your password reset code is: <strong style="font-size: 24px; letter-spacing: 2px;">${resetCode}</strong></p>
+            <p>This code expires in 1 hour.</p>
+            <p style="color: #666; font-size: 12px; margin-top: 24px;">If you didn't request this, please ignore this email.</p>
+          </div>
+        `
+      });
+      
+      res.json({ message: 'Password reset code sent to your email' });
+    } catch (err) {
+      console.error('Forgot password error:', err);
+      res.status(500).json({ error: 'Failed to process request' });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ error: 'Email, code, and new password are required' });
+    }
+    try {
+      const user = db.prepare("SELECT * FROM users WHERE email = ? AND verificationCode = ?").get(email, code);
+      if (!user) {
+        return res.status(400).json({ error: 'Invalid or expired reset code' });
+      }
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      db.prepare("UPDATE users SET password = ?, verificationCode = NULL WHERE email = ?").run(hashedPassword, email);
+      res.json({ message: 'Password reset successfully' });
+    } catch (err) {
+      console.error('Reset password error:', err);
+      res.status(500).json({ error: 'Failed to reset password' });
     }
   });
 
