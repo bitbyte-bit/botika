@@ -4056,6 +4056,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       return;
     }
     try {
+      console.log("Registering business with data:", { ...user, role: 'seller', businessName: businessData.name, businessDescription: businessData.description });
       const updatedUser = {
         ...user,
         role: 'seller',
@@ -4063,14 +4064,16 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
         businessDescription: businessData.description
       };
       await api.post('/users', updatedUser);
+      console.log("Business registered successfully");
       localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
       setUser(updatedUser as User);
       await fetchData();
       toast.success("Business registered! Please verify your business to start posting products.");
       setIsRegistering(false);
       setShowVerifyModal(true);
-    } catch (error) {
-      toast.error("Failed to register business");
+    } catch (error: any) {
+      console.error("Failed to register business:", error);
+      toast.error(error.message || "Failed to register business");
     }
   };
 

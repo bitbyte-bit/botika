@@ -597,11 +597,11 @@ async function startServer() {
       return res.status(400).json({ error: 'UID and email are required' });
     }
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, status, businessName, businessDescription, password, createdAt, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
+      INSERT OR REPLACE INTO users (uid, email, displayName, photoURL, role, status, businessName, businessDescription, password, createdAt, verificationCode, isVerified, location, phoneAirtel, phoneMTN, coverPhoto, socialHandles)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     try {
-      stmt.run(uid, email, displayName || null, photoURL || null, role || 'customer', status || 'active', businessName || null, businessDescription || null, password || null, createdAt || new Date().toISOString(), location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
+      stmt.run(uid, email, displayName || null, photoURL || null, role || 'customer', status || 'active', businessName || null, businessDescription || null, password || null, createdAt || new Date().toISOString(), null, 0, location || null, phoneAirtel || null, phoneMTN || null, coverPhoto || null, socialHandles ? JSON.stringify(socialHandles) : null);
       res.json({ success: true });
     } catch (err) {
       console.error('User insert error:', err);
