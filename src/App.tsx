@@ -4074,6 +4074,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       toast.success("Business registered! Please verify your business to start posting products.");
       setIsRegistering(false);
       setShowVerifyModal(true);
+      setView('inventory');
     } catch (error: any) {
       console.error("Failed to register business:", error);
       toast.error(error.message || "Failed to register business");
