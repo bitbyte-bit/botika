@@ -4068,13 +4068,15 @@ const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
         businessName: businessData.name,
         businessDescription: businessData.description
       };
-      await api.post('/users', updatedUser);
-      console.log("Business registered successfully");
+      
       localStorage.setItem('user', JSON.stringify(updatedUser));
       setUser(updatedUser);
       setIsRegistering(false);
       setShowVerifyModal(true);
       setView('inventory');
+      
+      await api.post('/users', updatedUser);
+      console.log("Business registered successfully");
       try {
         const [p, o, v] = await Promise.all([
           api.get('/products?includeUnapproved=true&all=true'),
