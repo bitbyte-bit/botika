@@ -6314,7 +6314,7 @@ const handleProductSelect = (product: Product) => {
         {view === 'wallet' && user && <WalletView user={user} />}
         {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
         {view === 'orders' && user && <OrdersView user={user} />}
-        {view === 'inventory' && user && <SellerDashboard setView={setView} />}
+        {view === 'inventory' && <SellerDashboard setView={setView} />}
         {view === 'admin' && user?.role === 'admin' && <AdminDashboard />}
         {view === 'profile' && <ProfileView onNavigate={setView} onSelectSeller={setSelectedSellerId} />}
       </main>
