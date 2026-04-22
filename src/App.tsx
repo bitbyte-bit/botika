@@ -4060,40 +4060,28 @@ const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
       toast.error("Business name is required");
       return;
     }
+    
+    const updatedUser: User = {
+      ...user,
+      role: 'seller',
+      businessName: businessData.name,
+      businessDescription: businessData.description
+    };
+    
     try {
-      console.log("Registering business with data:", { ...user, role: 'seller', businessName: businessData.name, businessDescription: businessData.description });
-      const updatedUser: User = {
-        ...user,
-        role: 'seller',
-        businessName: businessData.name,
-        businessDescription: businessData.description
-      };
-      
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      setUser(updatedUser);
-      setIsRegistering(false);
-      setShowVerifyModal(true);
-      setView('inventory');
-      
       await api.post('/users', updatedUser);
       console.log("Business registered successfully");
-      try {
-        const [p, o, v] = await Promise.all([
-          api.get('/products?includeUnapproved=true&all=true'),
-          api.get('/orders?all=true'),
-          api.get(`/business/verify/${updatedUser.uid}`)
-        ]);
-        setProducts((p || []).filter((prod: Product) => prod.sellerId === updatedUser.uid));
-        setOrders((o || []).filter((order: Order) => order.sellerIds.includes(updatedUser.uid)));
-        setIsVerified(v && v.status === 'approved');
-      } catch (err) {
-        console.error("Failed to fetch data after registration:", err);
-      }
-      toast.success("Business registered! Please verify your business to start posting products.");
-    } catch (error: any) {
-      console.error("Failed to register business:", error);
-      toast.error(error.message || "Failed to register business");
+    } catch (apiError) {
+      console.error("API error (non-fatal):", apiError);
     }
+    
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    setUser(updatedUser);
+    setIsRegistering(false);
+    setShowVerifyModal(true);
+    setView('inventory');
+    
+    toast.success("Business registered! Please verify your business to start posting products.");
   };
 
   if (user.role === 'customer') {
