@@ -3983,8 +3983,8 @@ const handleLike = async () => {
   );
 };
 
-const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string) => void }) => {
-  const { setUser } = useAuth();
+const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
+  const { user, setUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -3993,6 +3993,8 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   const [isVerified, setIsVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showAccountSetup, setShowAccountSetup] = useState(false);
+
+  if (!user) return null;
   const [accountSetupData, setAccountSetupData] = useState({ bankName: '', accountName: '' });
   const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
@@ -4032,7 +4034,7 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
   };
 
   const fetchData = async () => {
-    if (!user || user.role === 'customer') return;
+    if (!user || user.role !== 'seller') return;
     try {
       const [p, o, v] = await Promise.all([
         api.get('/products?includeUnapproved=true&all=true'),
@@ -4068,13 +4070,24 @@ const SellerDashboard = ({ user, setView }: { user: User, setView: (view: string
       };
       await api.post('/users', updatedUser);
       console.log("Business registered successfully");
-      localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
-      setUser(updatedUser as User);
-      await fetchData();
-      toast.success("Business registered! Please verify your business to start posting products.");
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
       setIsRegistering(false);
       setShowVerifyModal(true);
       setView('inventory');
+      try {
+        const [p, o, v] = await Promise.all([
+          api.get('/products?includeUnapproved=true&all=true'),
+          api.get('/orders?all=true'),
+          api.get(`/business/verify/${updatedUser.uid}`)
+        ]);
+        setProducts((p || []).filter((prod: Product) => prod.sellerId === updatedUser.uid));
+        setOrders((o || []).filter((order: Order) => order.sellerIds.includes(updatedUser.uid)));
+        setIsVerified(v && v.status === 'approved');
+      } catch (err) {
+        console.error("Failed to fetch data after registration:", err);
+      }
+      toast.success("Business registered! Please verify your business to start posting products.");
     } catch (error: any) {
       console.error("Failed to register business:", error);
       toast.error(error.message || "Failed to register business");
@@ -4824,7 +4837,7 @@ await api.post('/business/verify', {
                   hasCompletedAccountSetup: true
                 };
                 await api.post('/users', updatedUser);
-                localStorage.setItem('bikuumba_user', JSON.stringify(updatedUser));
+localStorage.setItem('user', JSON.stringify(updatedUser));
                 setUser(updatedUser as User);
                 toast.success("Account settings completed!");
                 setShowAccountSetup(false);
@@ -6311,7 +6324,7 @@ const handleProductSelect = (product: Product) => {
         {view === 'wallet' && user && <WalletView user={user} />}
         {view === 'checkout' && <CheckoutView products={products} onComplete={() => setView('orders')} />}
         {view === 'orders' && user && <OrdersView user={user} />}
-        {view === 'inventory' && user && <SellerDashboard user={user} setView={setView} />}
+        {view === 'inventory' && user && <SellerDashboard setView={setView} />}
         {view === 'admin' && user?.role === 'admin' && <AdminDashboard />}
         {view === 'profile' && <ProfileView onNavigate={setView} onSelectSeller={setSelectedSellerId} />}
       </main>
