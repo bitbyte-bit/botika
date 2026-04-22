@@ -3993,19 +3993,10 @@ const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
   const [isVerified, setIsVerified] = useState(false);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [showAccountSetup, setShowAccountSetup] = useState(false);
-
-  if (!user) return null;
   const [accountSetupData, setAccountSetupData] = useState({ bankName: '', accountName: '' });
   const [verifyData, setVerifyData] = useState({ registeredEmail: '', registeredPhone: '', ninNumber: '', nationalIdFront: '', nationalIdBack: '', passportPhoto: '' });
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const { formatPrice } = useCurrency();
-
-  const copyOrderId = (orderId: string) => {
-    navigator.clipboard.writeText(orderId);
-    setCopiedOrderId(orderId);
-    toast.success('Order ID copied!');
-    setTimeout(() => setCopiedOrderId(null), 2000);
-  };
   const [newProduct, setNewProduct] = useState<Partial<Product>>({
     name: '',
     description: '',
@@ -4023,15 +4014,7 @@ const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
     condition: 'new'
   });
 
-  const updateOrderStatus = async (orderId: string, newStatus: string) => {
-    try {
-      await api.patch(`/orders/${orderId}/status`, { status: newStatus });
-      fetchData();
-      toast.success(`Order marked as ${newStatus}`);
-    } catch (error) {
-      toast.error('Failed to update order status');
-    }
-  };
+  if (!user) return null;
 
   const fetchData = async () => {
     if (!user || user.role !== 'seller') return;
@@ -4049,6 +4032,23 @@ const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
     }
   };
 
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+      await api.patch(`/orders/${orderId}/status`, { status: newStatus });
+      fetchData();
+      toast.success(`Order marked as ${newStatus}`);
+    } catch (error) {
+      toast.error('Failed to update order status');
+    }
+  };
+
+  const copyOrderId = (orderId: string) => {
+    navigator.clipboard.writeText(orderId);
+    setCopiedOrderId(orderId);
+    toast.success('Order ID copied!');
+    setTimeout(() => setCopiedOrderId(null), 2000);
+  };
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 10000);
@@ -4062,7 +4062,7 @@ const SellerDashboard = ({ setView }: { setView: (view: string) => void }) => {
     }
     try {
       console.log("Registering business with data:", { ...user, role: 'seller', businessName: businessData.name, businessDescription: businessData.description });
-      const updatedUser = {
+      const updatedUser: User = {
         ...user,
         role: 'seller',
         businessName: businessData.name,
