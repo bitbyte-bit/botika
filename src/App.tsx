@@ -255,6 +255,16 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('user', JSON.stringify(user));
       setShowLoginModal(false);
       toast.success('Welcome!');
+      
+      // Request notification permission and subscribe to push notifications
+      try {
+        const subscription = await requestNotificationPermission();
+        if (subscription) {
+          await api.post('/notifications/subscribe', { token: subscription, userId: user.uid });
+        }
+      } catch (e) {
+        console.log('Notification permission or subscription failed');
+      }
     } catch (error) {
       console.error('Google login error:', error);
       toast.error('Login failed');
@@ -6024,10 +6034,31 @@ const handleProductSelect = (product: Product) => {
     api.post('/products', { ...product, visitCount: (product.visitCount || 0) + 1 });
   };
 
+  const fetchUnreadCounts = async () => {
+    if (!user) return;
+    try {
+      const messages = await api.get(`/messages/${user.uid}?currentUserId=${user.uid}`);
+      const unreadCount = messages ? messages.filter((m: any) => m.receiverId === user.uid && !m.read).length : 0;
+      setUnreadMessagesCount(unreadCount);
+    } catch (error) {
+      console.error("Failed to fetch unread counts", error);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
     fetchAnnouncement();
+    fetchUnreadCounts();
   }, []);
+
+  useEffect(() => {
+    const handleForegroundMessage = (payload: any) => {
+      if (payload.data?.type === 'message') {
+        fetchUnreadCounts();
+      }
+    };
+    onForegroundMessage(handleForegroundMessage);
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-background">
